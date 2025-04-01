@@ -1,0 +1,228 @@
+# --- START OF FINAL FILE configs/stack-converter.yaml ---
+# (No changes needed from previous version based on recommendations)
+# Default Example Configuration for stack-converter
+# --------------------------------------------------
+# This file shows many available options with default or example values.
+# Settings here are overridden by environment variables (STACKCONVERTER_*)
+# and then by command-line flags.
+
+# --- Behavior & Control ---
+
+# onError: Controls behavior on non-fatal file processing errors.
+# Options: "continue" (log error, continue processing other files)
+#          "stop" (log error, stop entire run immediately)
+# Default: "continue"
+onError: "continue"
+
+# tuiEnabled: Whether to attempt using the interactive Terminal UI.
+# Only applies if running in a TTY and --verbose is not set.
+# Default: true
+# tuiEnabled: true # Use --no-tui flag to disable easily
+
+# verbose: Enables detailed debug logging. Overrides tuiEnabled.
+# Often set via -v flag.
+# Default: false
+# verbose: false
+
+# forceOverwrite: If true, overwrites the output directory without prompting
+# if it exists and is non-empty. USE WITH CAUTION.
+# Often set via -f/--force flag.
+# Default: false
+# forceOverwrite: false
+
+# --- Performance & Caching ---
+
+# concurrency: Number of parallel worker goroutines for file processing.
+# 0 automatically sets it to the number of logical CPUs (runtime.NumCPU()).
+# 1 disables parallelism (useful for debugging).
+# Env: STACKCONVERTER_CONCURRENCY
+# Default: 0
+concurrency: 0
+
+# cache: Master switch to enable/disable cache reading and writing.
+# --no-cache flag only disables reading, this disables both.
+# Default: true
+cache: true
+
+# --- File Handling ---
+
+# ignore: List of glob patterns for files/directories to ignore.
+# Supplements patterns from .stackconverterignore and --ignore flags.
+# Uses .gitignore syntax.
+# Default: []
+ignore:
+  - "**/node_modules/**"
+  - "**/.git/**"
+  - "**/*.log"
+  - "dist/"
+  - "build/"
+  - ".cache/"
+  - "*.pyc"
+  - ".DS_Store"
+
+# binaryMode: How to handle detected binary files.
+# Options: "skip" (default - ignore them),
+#          "placeholder" (generate a .md file with placeholder text),
+#          "error" (treat as a processing error).
+# Default: "skip"
+binaryMode: "skip"
+
+# largeFileThresholdMB: File size threshold in Megabytes (MB).
+# Files larger than this trigger the largeFileMode behavior.
+# Default: 100
+largeFileThresholdMB: 100
+
+# largeFileMode: How to handle files exceeding the threshold.
+# Options: "skip" (default - ignore them),
+#          "truncate" (process only the beginning, see largeFileTruncateCfg),
+#          "error" (treat as a processing error).
+# Default: "skip"
+largeFileMode: "skip"
+
+# largeFileTruncateCfg: Configuration for "truncate" mode.
+# Specify size (e.g., "1MB", "500KB") or lines (e.g., "1000 lines").
+# Default: "1MB" (applies only if largeFileMode is "truncate")
+# largeFileTruncateCfg: "1MB"
+
+# defaultEncoding: Encoding to assume if detection fails (e.g., for files
+# without BOMs or distinctive patterns). Use IANA names (e.g., "ISO-8859-1").
+# Leave empty to rely solely on detection (may result in errors for ambiguous files).
+# Default: ""
+# defaultEncoding: "ISO-8859-1"
+
+# --- Language Detection ---
+
+# languageDetectionConfidenceThreshold: Minimum confidence score (0.0 to 1.0)
+# required to trust content-based language detection (e.g., from go-enry).
+# Below this threshold, it falls back to extension mapping.
+# Default: 0.75
+languageDetectionConfidenceThreshold: 0.75
+
+# languageMappings: Override or add specific file extension to language mappings.
+# Key is the extension (lowercase, including dot), value is the Markdown language ID.
+# These override both content detection and built-in extension mappings.
+# Default: {} (Empty map)
+languageMappings:
+  ".mycode": "plaintext"
+  ".script": "bash"
+  ".h": "c" # Ensure C headers are marked as C, not C++
+
+# --- Output & Formatting ---
+
+# outputFormat: Format for the final summary report (when TUI is disabled).
+# Options: "text" (default - human-readable summary log),
+#          "json" (machine-readable JSON object printed to stdout).
+# Default: "text"
+# outputFormat: "json"
+
+# templateFile: Path to a custom Go text/template file for rendering Markdown content.
+# If empty or omitted, the built-in default template is used.
+# Default: ""
+# templateFile: "./docs/_templates/custom.tmpl"
+
+# frontMatter: Configuration for prepending YAML or TOML front matter.
+# See docs/template_guide.md for included fields.
+# Default: disabled
+frontMatter:
+  enabled: false
+  format: "yaml" # Options: "yaml", "toml"
+  static: # Static key-value pairs added to every file
+    generator: "stack-converter"
+    draft: true
+  include: # Dynamic fields from file metadata to include
+    - "FilePath"
+    - "DetectedLanguage"
+    - "ModTime"
+    # - "GitCommit" # Requires gitMetadata: true
+
+# --- Workflow Features ---
+
+# watch: Configuration for watch mode (--watch flag enables it).
+watch:
+  # enabled: false # Set via --watch flag usually
+  debounce: "300ms" # Time to wait after a file change before triggering re-run
+
+# git: Configuration for Git integration. Flags usually control activation.
+git:
+  # diffOnly: false # Set via --git-diff-only flag
+  sinceRef: "origin/main" # Default ref if --git-since is used without a value
+
+# analysis: Configuration for code analysis features.
+analysis:
+  extractComments: false # Enable experimental comment extraction
+  # commentStyles: ["godoc", "pydoc", "javadoc"] # Styles to attempt extraction for
+
+# gitMetadata: Enable fetching Git metadata (commit, author, date) for files.
+# Available in templates if enabled.
+# Default: false
+gitMetadata: false
+
+# --- Extensibility ---
+
+# plugins: Configure external plugins to run at specific stages.
+# Format: map[stage][]PluginConfig
+# Stage options: "preprocessors", "postprocessors", "formatters" (mutually exclusive output)
+# PluginConfig fields: name (string), enabled (bool), command ([]string), appliesTo ([]string, optional globs)
+# See docs/plugin_schema.md and docs/plugin_dev_guide.md for details.
+# Default: {} (No plugins)
+plugins:
+  # preprocessors: # Run after reading content, before templating
+  #   - name: "strip-todos"
+  #     enabled: true
+  #     command: ["python", "scripts/plugins/strip_todos.py"]
+  #     appliesTo: ["*.go", "*.py"]
+  # postprocessors: # Run after templating, before writing file
+  #   - name: "add-footer"
+  #     enabled: true
+  #     command: ["bash", "scripts/plugins/add_footer.sh", "--copyright", "My Org"]
+  # formatters: # Replaces templating, outputs final file content
+  #   - name: "render-rst"
+  #     enabled: false
+  #     command: ["rst2html", "--input-encoding=utf-8"] # Example
+  #     appliesTo: ["*.rst"]
+  {} # Explicitly empty if no plugins
+
+# --- Profiles ---
+# Define named configuration overrides for different contexts (--profile NAME).
+# Settings here merge onto the base configuration above.
+profiles:
+  default: {} # Inherits all base settings
+
+  ci: # Example profile for CI environments
+    cache: false # Usually disabled in CI
+    tuiEnabled: false # CI is non-interactive
+    outputFormat: "json" # Machine-readable output for checking results
+    onError: "stop" # Fail the build immediately on error
+    verbose: true # Provide more detail in CI logs
+    # gitMetadata: true # Often useful in CI to include commit info
+    # concurrency: 4 # Limit concurrency on shared CI runners
+
+  website: # Example profile for generating docs for a website build
+    templateFile: "./docs/_templates/website_template.md" # Use a specific template
+    gitMetadata: true
+    frontMatter:
+      enabled: true
+      format: "yaml"
+      include:
+        - "FilePath"
+        - "DetectedLanguage"
+        - "GitCommit"
+        - "title" # Assume metadata is added elsewhere or by plugin
+      static:
+        layout: "docs" # Specific layout for static site generator
+        draft: false
+    ignore: # Ignore files not meant for the website
+      - "internal/"
+      - "**/*_test.go"
+      - "scripts/"
+      - "LICENSE"
+
+  precommit: # Example profile for running in a pre-commit hook
+    cache: true # Use cache for speed
+    tuiEnabled: false
+    onError: "stop" # Fail commit on error
+    git:
+      diffOnly: true # Process only staged changes (verify implementation detail)
+    concurrency: 2 # Limit resource usage
+
+# --- END OF FINAL FILE configs/stack-converter.yaml ---
