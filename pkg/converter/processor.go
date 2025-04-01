@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
+	"encoding/json" // Import standard errors package
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	// Assume internal paths based on previous structure - THESE ARE OK
+	// Import necessary subpackages
 	"github.com/stackvity/stack-converter/pkg/converter/analysis"
 	"github.com/stackvity/stack-converter/pkg/converter/encoding"
 	"github.com/stackvity/stack-converter/pkg/converter/language"
@@ -25,35 +25,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// --- Processor Specific Errors ---
-// Assuming these are defined in pkg/converter/errors.go
-// var (
-// 	ErrReadFailed            = errors.New("failed to read file")
-// 	ErrStatFailed            = errors.New("failed to get file stats")
-// 	ErrConfigHashCalculation = errors.New("failed to calculate config hash")
-// 	ErrBinaryFile            = errors.New("binary file encountered")
-// 	ErrLargeFile             = errors.New("large file encountered")
-// 	ErrTruncationFailed      = errors.New("failed to truncate content")
-// 	ErrPluginExecution       = errors.New("plugin execution failed")
-// 	ErrFrontMatterGen        = errors.New("failed to generate front matter")
-// 	ErrTemplateExecution     = errors.New("template execution failed")
-// 	ErrWriteFailed           = errors.New("failed to write output file")
-// 	ErrMkdirFailed           = errors.New("failed to create output directory")
-// 	ErrConfigValidation      = errors.New("invalid configuration options provided") // Used in helper functions
-// )
-
 // --- FileProcessor ---
 
 // FileProcessor handles the processing pipeline for a single file.
 type FileProcessor struct {
 	opts             *Options
 	logger           *slog.Logger
-	cacheManager     CacheManager // Uses interface from options.go
+	cacheManager     CacheManager
 	langDetector     language.LanguageDetector
 	encodingHandler  encoding.EncodingHandler
 	analysisEngine   analysis.AnalysisEngine
-	gitClient        GitClient    // Uses interface from options.go
-	pluginRunner     PluginRunner // Uses interface from options.go
+	gitClient        GitClient
+	pluginRunner     PluginRunner
 	templateExecutor template.TemplateExecutor
 }
 
@@ -61,14 +44,14 @@ type FileProcessor struct {
 func NewFileProcessor(
 	opts *Options,
 	loggerHandler slog.Handler,
-	cacheMgr CacheManager, // Use interface type from options.go
+	cacheMgr CacheManager,
 	langDet language.LanguageDetector,
 	encHandler encoding.EncodingHandler,
 	analysisEng analysis.AnalysisEngine,
-	gitCl GitClient, // Use interface type from options.go
-	pluginRun PluginRunner, // Use interface type from options.go
+	gitCl GitClient,
+	pluginRun PluginRunner,
 	tplExecutor template.TemplateExecutor,
-) *FileProcessor {
+) *FileProcessor { // minimal comment
 	logger := slog.New(loggerHandler).With(slog.String("component", "processor"))
 	return &FileProcessor{
 		opts:             opts,
@@ -84,28 +67,31 @@ func NewFileProcessor(
 }
 
 // ProcessFile executes the full processing pipeline for a given file path.
-func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (result interface{}, status Status, err error) {
+func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (result interface{}, status Status, err error) { // minimal comment
 	startTime := time.Now()
 	relPath, pathErr := filepath.Rel(p.opts.InputPath, absFilePath)
 	if pathErr != nil {
 		errMsg := fmt.Sprintf("Failed to calculate relative path for %s: %v", absFilePath, pathErr)
 		p.logger.Error(errMsg, slog.String("absolutePath", absFilePath))
-		// Use exported error variable from errors.go
-		return nil, StatusFailed, fmt.Errorf("%w: %w", ErrReadFailed, pathErr) // Assuming ErrReadFailed is suitable
+		return nil, StatusFailed, fmt.Errorf("%w: calculating relative path: %w", ErrReadFailed, pathErr)
 	}
 	relPath = filepath.ToSlash(relPath)
 	logArgs := []any{slog.String("path", relPath)}
 
 	// Defer block to log final status and update hooks
 	defer func() {
-		duration := time.Since(startTime) // Use time.Since
+		duration := time.Since(startTime)
 		var message string
-		finalStatus := status // Tentative final status
+		finalStatus := status
+
 		if err != nil {
-			finalStatus = StatusFailed // Override if an error occurred
+			finalStatus = StatusFailed
 			message = err.Error()
+		} else if status == "" {
+			finalStatus = StatusSuccess
+			message = "Successfully processed"
+			p.logger.Debug("Processor finished with no error, assuming success", logArgs...)
 		} else {
-			// Use switch on defined Status constants
 			switch status {
 			case StatusCached:
 				message = "Retrieved from cache"
@@ -113,18 +99,28 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 				if si, ok := result.(SkippedInfo); ok {
 					message = fmt.Sprintf("Skipped - %s: %s", si.Reason, si.Details)
 				} else {
-					message = "Skipped" // Fallback message if result type is unexpected
+					message = "Skipped"
 				}
 			case StatusSuccess:
 				message = "Successfully processed"
+			default:
+				message = string(status)
 			}
 		}
 
 		logArgsWithStatus := append(logArgs, slog.String("status", string(finalStatus)), slog.Duration("duration", duration))
-		if finalStatus == StatusFailed && err != nil {
-			logArgsWithStatus = append(logArgsWithStatus, slog.String("error", err.Error()))
+		logLevel := slog.LevelDebug
+		logMsg := "File processing finished"
+		if finalStatus == StatusFailed {
+			logLevel = slog.LevelError
+			logMsg = "File processing failed"
+			if err != nil {
+				logArgsWithStatus = append(logArgsWithStatus, slog.String("error", err.Error()))
+			}
+		} else if finalStatus == StatusSuccess {
+			logLevel = slog.LevelInfo
 		}
-		p.logger.Debug("File processing finished", logArgsWithStatus...)
+		p.logger.Log(ctx, logLevel, logMsg, logArgsWithStatus...)
 
 		if p.opts.EventHooks != nil {
 			if hookErr := p.opts.EventHooks.OnFileStatusUpdate(relPath, finalStatus, message, duration); hookErr != nil {
@@ -146,7 +142,6 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 		p.logger.Debug("Processing cancelled before start", logArgs...)
 		status = StatusFailed
 		err = ctx.Err()
-		// Return ErrorInfo as result for failed status
 		return ErrorInfo{Path: relPath, Error: err.Error(), IsFatal: true}, status, err
 	default:
 	}
@@ -155,7 +150,6 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 	fileInfo, statErr := os.Stat(absFilePath)
 	if statErr != nil {
 		errMsg := fmt.Sprintf("Failed to stat file: %v", statErr)
-		// Use exported error variable from errors.go
 		err = fmt.Errorf("%w: %w", ErrStatFailed, statErr)
 		status = StatusFailed
 		return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
@@ -164,24 +158,22 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 	fileSize := fileInfo.Size()
 
 	// 3. Calculate Config Hash
-	// FIX: Call the exported method name
 	configHash, cfgHashErr := p.CalculateConfigHash()
 	if cfgHashErr != nil {
 		errMsg := fmt.Sprintf("Failed to calculate config hash: %v", cfgHashErr)
-		// Use exported error variable from errors.go
 		err = fmt.Errorf("%w: %w", ErrConfigHashCalculation, cfgHashErr)
 		p.logger.Error(errMsg, logArgs...)
 		status = StatusFailed
 		return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: true}, status, err
 	}
 
-	var sourceContentBytes []byte // Declared outside for broader scope
+	var sourceContentBytes []byte
 
 	// 4. Check Cache
-	cacheStatus := CacheStatusDisabled // Default if cache not enabled
+	cacheStatus := CacheStatusDisabled
 	var currentSourceHash string
 	if p.opts.CacheEnabled && p.cacheManager != nil {
-		cacheStatus = CacheStatusMiss // Assume miss initially if enabled
+		cacheStatus = CacheStatusMiss
 		if !p.opts.IgnoreCacheRead {
 			sourceContentBytesForCache, readErrForCache := os.ReadFile(absFilePath)
 			if readErrForCache != nil {
@@ -199,18 +191,18 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 						ModTime:     modTime,
 						CacheStatus: cacheStatus,
 					}
-					return result, status, nil // Return early on cache hit
+					return result, status, nil
 				}
 				p.logger.Debug("Cache miss", logArgs...)
-				sourceContentBytes = sourceContentBytesForCache // Store content read for cache check
+				sourceContentBytes = sourceContentBytesForCache
 			}
 		} else {
-			cacheStatus = CacheStatusDisabled // Read ignored, effectively disabled
+			cacheStatus = CacheStatusDisabled
 			p.logger.Debug("Cache read ignored", logArgs...)
 		}
 	}
 
-	// 5. Read File Content (if not already read for cache check)
+	// 5. Read File Content (if not already read)
 	if len(sourceContentBytes) == 0 {
 		var readErr error
 		sourceContentBytes, readErr = os.ReadFile(absFilePath)
@@ -222,19 +214,32 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 		}
 	}
 
-	// Calculate source hash if needed for cache update
+	// Calculate source hash if needed
 	if currentSourceHash == "" && p.opts.CacheEnabled {
 		currentSourceHash = fmt.Sprintf("%x", sha256.Sum256(sourceContentBytes))
 	}
 
 	// 6. Handle Encoding
-	utf8ContentBytes, detectedEncoding, certainty, encodingErr := p.encodingHandler.DetectAndDecode(sourceContentBytes)
-	if encodingErr != nil {
-		p.logger.Warn("Encoding conversion failed", append(logArgs, slog.String("error", encodingErr.Error()))...)
-	} else if !certainty {
-		logMsg := "Encoding detection uncertain"
-		// ... (logging logic remains the same) ...
-		p.logger.Warn(logMsg, append(logArgs, slog.String("guessedEncoding", detectedEncoding))...)
+	var utf8ContentBytes []byte
+	detectedEncoding := "unknown"
+	certainty := false
+	var encodingErr error
+	if p.encodingHandler != nil {
+		utf8ContentBytes, detectedEncoding, certainty, encodingErr = p.encodingHandler.DetectAndDecode(sourceContentBytes)
+		if encodingErr != nil {
+			p.logger.Warn("Encoding conversion failed", append(logArgs, slog.String("error", encodingErr.Error()))...)
+		} else if !certainty {
+			logMsg := "Encoding detection uncertain, using fallback/guess"
+			if detectedEncoding != "" {
+				logMsg = fmt.Sprintf("Encoding detection uncertain, using guessed encoding '%s'", detectedEncoding)
+			}
+			p.logger.Warn(logMsg, logArgs...)
+		}
+	} else {
+		p.logger.Warn("Encoding handler not available, assuming UTF-8", logArgs...)
+		utf8ContentBytes = sourceContentBytes
+		detectedEncoding = "utf-8"
+		certainty = false
 	}
 	p.logger.Debug("Encoding handled", append(logArgs, slog.String("finalEncoding", detectedEncoding), slog.Bool("certain", certainty))...)
 	textContent := string(utf8ContentBytes)
@@ -250,14 +255,19 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 	}
 
 	// 7. Detect Binary File
-	isBinary := p.encodingHandler.IsBinary(utf8ContentBytes)
+	isBinary := false
+	if p.encodingHandler != nil {
+		isBinary = p.encodingHandler.IsBinary(utf8ContentBytes)
+	} else {
+		p.logger.Warn("Encoding handler not available, cannot perform binary detection", logArgs...)
+	}
 	if isBinary {
 		switch p.opts.BinaryMode {
 		case BinarySkip:
 			p.logger.Debug("Skipping binary file", logArgs...)
 			status = StatusSkipped
 			result = SkippedInfo{Path: relPath, Reason: SkipReasonBinary, Details: "Binary file detected"}
-			return result, status, nil // Return early
+			return result, status, nil
 		case BinaryPlaceholder:
 			p.logger.Debug("Generating placeholder for binary file", logArgs...)
 			textContent = fmt.Sprintf("[Binary content skipped: %s]", filepath.Base(relPath))
@@ -265,6 +275,11 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 			err = ErrBinaryFile
 			status = StatusFailed
 			return ErrorInfo{Path: relPath, Error: err.Error(), IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
+		default:
+			p.logger.Error("Invalid binaryMode setting encountered", append(logArgs, slog.String("mode", string(p.opts.BinaryMode)))...)
+			err = fmt.Errorf("%w: invalid binaryMode '%s'", ErrConfigValidation, p.opts.BinaryMode)
+			status = StatusFailed
+			return ErrorInfo{Path: relPath, Error: err.Error(), IsFatal: true}, status, err
 		}
 	}
 
@@ -278,7 +293,7 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 			p.logger.Debug("Skipping large file", append(logArgs, slog.String("details", details))...)
 			status = StatusSkipped
 			result = SkippedInfo{Path: relPath, Reason: SkipReasonLarge, Details: details}
-			return result, status, nil // Return early
+			return result, status, nil
 		case LargeFileTruncate:
 			p.logger.Debug("Truncating large file", append(logArgs, slog.Int64("size", fileSize), slog.String("config", p.opts.LargeFileTruncateCfg))...)
 			truncatedBytes, errTrunc := truncateContent(utf8ContentBytes, p.opts.LargeFileTruncateCfg)
@@ -295,6 +310,11 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 			err = ErrLargeFile
 			status = StatusFailed
 			return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
+		default:
+			p.logger.Error("Invalid largeFileMode setting encountered", append(logArgs, slog.String("mode", string(p.opts.LargeFileMode)))...)
+			err = fmt.Errorf("%w: invalid largeFileMode '%s'", ErrConfigValidation, p.opts.LargeFileMode)
+			status = StatusFailed
+			return ErrorInfo{Path: relPath, Error: err.Error(), IsFatal: true}, status, err
 		}
 	}
 
@@ -309,11 +329,16 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 	}
 
 	// 9. Detect Language
-	languageName, confidence, langErr := p.langDetector.Detect([]byte(textContent), relPath)
-	if langErr != nil {
-		p.logger.Warn("Language detection failed", append(logArgs, slog.String("error", langErr.Error()))...)
-		languageName = "unknown"
-		confidence = 0.0
+	languageName := "unknown"
+	confidence := 0.0
+	if p.langDetector != nil {
+		var langErr error
+		languageName, confidence, langErr = p.langDetector.Detect([]byte(textContent), relPath)
+		if langErr != nil {
+			p.logger.Warn("Language detection failed", append(logArgs, slog.String("error", langErr.Error()))...)
+		}
+	} else {
+		p.logger.Warn("Language detector not available, defaulting to 'unknown'", logArgs...)
 	}
 	p.logger.Debug("Language detected", append(logArgs, slog.String("language", languageName), slog.Float64("confidence", confidence))...)
 
@@ -323,7 +348,8 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 	metadata := template.TemplateMetadata{
 		FilePath:           relPath,
 		FileName:           filepath.Base(relPath),
-		Content:            textContent, // Start with potentially modified content
+		OutputPath:         generateOutputPath(relPath),
+		Content:            textContent,
 		DetectedLanguage:   languageName,
 		LanguageConfidence: confidence,
 		SizeBytes:          fileSize,
@@ -343,9 +369,11 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 		commentsResult, analysisErr := p.analysisEngine.ExtractDocComments([]byte(metadata.Content), metadata.DetectedLanguage, p.opts.AnalysisOptions.CommentStyles)
 		if analysisErr != nil {
 			p.logger.Warn("Comment extraction failed", append(logArgs, slog.String("error", analysisErr.Error()))...)
-		} else if commentsResult != "" {
+		}
+		if commentsResult != "" {
 			extractedCommentsValue = commentsResult
 			metadata.ExtractedComments = &extractedCommentsValue
+			p.logger.Debug("Comments extracted", logArgs...)
 		}
 	}
 
@@ -362,18 +390,25 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 				DateISO:     gitMetaMap["dateISO"],
 			}
 			metadata.GitInfo = &gitInfoData
+			p.logger.Debug("Git metadata fetched", logArgs...)
 		}
 	}
 
-	outputContent := metadata.Content // Start with current content
+	outputContent := metadata.Content
 	var pluginsRun []string
 
 	// 13. Run Preprocessor Plugins (Optional)
 	if p.pluginRunner != nil {
 		pluginMetadataMap := convertMetaToMap(&metadata)
+		if pluginMetadataMap == nil {
+			errMsg := "Internal error converting metadata for preprocessor plugin input"
+			err = ErrMetadataConversion
+			status = StatusFailed
+			return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: true}, status, err
+		}
 		runPluginsOutput, pluginErr := p.runPluginsForStage(ctx, PluginStagePreprocessor, relPath, outputContent, pluginMetadataMap)
 		if pluginErr != nil {
-			err = fmt.Errorf("%w: preprocessor stage failed: %w", ErrPluginExecution, pluginErr)
+			err = pluginErr // Error already wrapped
 			status = StatusFailed
 			return ErrorInfo{Path: relPath, Error: err.Error(), IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
 		}
@@ -386,6 +421,12 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 	var frontMatterBlock string
 	if p.opts.FrontMatterConfig.Enabled {
 		pluginMetadataMapForFM := convertMetaToMap(&metadata)
+		if pluginMetadataMapForFM == nil {
+			errMsg := "Internal error converting metadata for front matter generation"
+			err = ErrMetadataConversion
+			status = StatusFailed
+			return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: true}, status, err
+		}
 		fmData := make(map[string]interface{})
 		for k, v := range p.opts.FrontMatterConfig.Static {
 			fmData[k] = v
@@ -393,9 +434,11 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 		for _, key := range p.opts.FrontMatterConfig.Include {
 			if val, ok := pluginMetadataMapForFM[key]; ok {
 				fmData[key] = val
+			} else {
+				p.logger.Warn("Front matter include key not found in metadata", append(logArgs, slog.String("key", key))...)
 			}
 		}
-		metadata.FrontMatter = fmData // Store generated FM data
+		metadata.FrontMatter = fmData
 
 		fmBytes, fmErr := generateFrontMatter(fmData, p.opts.FrontMatterConfig.Format)
 		if fmErr != nil {
@@ -405,9 +448,10 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 			return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
 		}
 		frontMatterBlock = string(fmBytes)
+		p.logger.Debug("Front matter generated", logArgs...)
 	}
 
-	// Update metadata Content before templating
+	// Update metadata Content field before templating
 	metadata.Content = outputContent
 
 	// Check cancellation
@@ -422,20 +466,33 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 
 	// 15. Execute Template
 	var templateOutput bytes.Buffer
+	if p.templateExecutor == nil {
+		errMsg := "Internal error: TemplateExecutor is nil"
+		err = ErrConfigValidation
+		status = StatusFailed
+		return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: true}, status, err
+	}
 	if templateErr := p.templateExecutor.Execute(&templateOutput, p.opts.Template, &metadata); templateErr != nil {
 		errMsg := fmt.Sprintf("Template execution failed: %v", templateErr)
 		err = fmt.Errorf("%w: %w", ErrTemplateExecution, templateErr)
 		status = StatusFailed
 		return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
 	}
-	outputContent = templateOutput.String() // Update content
+	outputContent = templateOutput.String()
+	p.logger.Debug("Template executed", logArgs...)
 
 	// 16. Run Postprocessor Plugins (Optional)
 	if p.pluginRunner != nil {
 		pluginMetadataMapAfterTpl := convertMetaToMap(&metadata)
+		if pluginMetadataMapAfterTpl == nil {
+			errMsg := "Internal error converting metadata for postprocessor plugin input"
+			err = ErrMetadataConversion
+			status = StatusFailed
+			return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: true}, status, err
+		}
 		runPluginsOutput, pluginErr := p.runPluginsForStage(ctx, PluginStagePostprocessor, relPath, outputContent, pluginMetadataMapAfterTpl)
 		if pluginErr != nil {
-			err = fmt.Errorf("%w: postprocessor stage failed: %w", ErrPluginExecution, pluginErr)
+			err = pluginErr // Error already wrapped
 			status = StatusFailed
 			return ErrorInfo{Path: relPath, Error: err.Error(), IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
 		}
@@ -448,20 +505,26 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 	formatterProvidedOutput := false
 	if p.pluginRunner != nil {
 		pluginMetadataMapForFormatter := convertMetaToMap(&metadata)
+		if pluginMetadataMapForFormatter == nil {
+			errMsg := "Internal error converting metadata for formatter plugin input"
+			err = ErrMetadataConversion
+			status = StatusFailed
+			return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: true}, status, err
+		}
 		formatterOutput, formatterErr := p.runPluginsForStage(ctx, PluginStageFormatter, relPath, outputContent, pluginMetadataMapForFormatter)
 		if formatterErr != nil {
-			err = fmt.Errorf("%w: formatter stage failed: %w", ErrPluginExecution, formatterErr)
+			err = formatterErr // Error already wrapped
 			status = StatusFailed
 			return ErrorInfo{Path: relPath, Error: err.Error(), IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
 		}
 		pluginsRun = append(pluginsRun, formatterOutput.PluginsRun...)
 		if formatterOutput.IsFinalOutput {
-			outputContent = formatterOutput.Output // Use formatter output
+			outputContent = formatterOutput.Output
 			formatterProvidedOutput = true
 			p.logger.Debug("Using final output from formatter plugin", append(logArgs, slog.String("plugin", formatterOutput.FinalPlugin))...)
-			frontMatterBlock = "" // Typically formatters handle everything
+			frontMatterBlock = ""
 		} else {
-			outputContent = formatterOutput.Content // Reflect postprocessor results
+			outputContent = formatterOutput.Content
 			updateMetadataFromMap(&metadata, formatterOutput.Metadata)
 		}
 	}
@@ -474,9 +537,9 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 		finalContent = frontMatterBlock + outputContent
 	}
 
-	outputRelPath := generateOutputPath(relPath)
+	outputRelPath := metadata.OutputPath
 	if outputRelPath == "" {
-		errMsg := fmt.Sprintf("Generated empty output path for %s", relPath)
+		errMsg := fmt.Sprintf("Internal error: Generated empty output path for %s", relPath)
 		err = fmt.Errorf("%w: %s", ErrWriteFailed, errMsg)
 		status = StatusFailed
 		return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
@@ -501,12 +564,15 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 		return ErrorInfo{Path: relPath, Error: errMsg, IsFatal: p.opts.OnErrorMode == OnErrorStop}, status, err
 	}
 	outputContentHash := fmt.Sprintf("%x", sha256.Sum256(outputContentBytes))
+	p.logger.Debug("Output file written", append(logArgs, slog.String("outputPath", outputRelPath))...)
 
 	// 21. Update Cache (Success Case)
 	if p.opts.CacheEnabled && p.cacheManager != nil {
 		updateErr := p.cacheManager.Update(relPath, modTime, currentSourceHash, configHash, outputContentHash)
 		if updateErr != nil {
 			p.logger.Warn("Failed to update cache entry", append(logArgs, slog.String("error", updateErr.Error()))...)
+		} else {
+			p.logger.Debug("Cache updated", logArgs...)
 		}
 	}
 
@@ -520,45 +586,53 @@ func (p *FileProcessor) ProcessFile(ctx context.Context, absFilePath string) (re
 		SizeBytes:          fileSize,
 		ModTime:            modTime,
 		CacheStatus:        cacheStatus,
-		DurationMs:         time.Since(startTime).Milliseconds(), // Use time.Since
+		DurationMs:         time.Since(startTime).Milliseconds(),
 		ExtractedComments:  metadata.ExtractedComments != nil,
 		FrontMatter:        frontMatterBlock != "",
 		PluginsRun:         pluginsRun,
 	}
-	return result, status, nil // Return nil error on success
+	return result, status, nil // Success: nil error
 }
 
 // CalculateConfigHash generates a stable hash representing relevant configuration.
-// FIX: Renamed to be exported.
-func (p *FileProcessor) CalculateConfigHash() (string, error) {
+// Note: This hash includes template content, enabled plugins (command, config),
+// analysis settings, front matter settings, and key file handling modes.
+// It deliberately excludes InputPath, OutputPath, Verbose, TuiEnabled, Concurrency,
+// Cache flags, etc., as these don't affect the content generation for a given file.
+func (p *FileProcessor) CalculateConfigHash() (string, error) { // minimal comment
 	hasher := sha256.New()
 
 	configSubset := make(map[string]interface{})
 
-	// Template Hash
+	// 1. Template Hash (Content or Name)
 	templateHash := "default"
+	// FIX: Replace undefined constant with string literal "default"
 	if p.opts.Template != nil && p.opts.Template.Name() != "default" {
 		if p.opts.TemplatePath != "" {
 			tplBytes, err := os.ReadFile(p.opts.TemplatePath)
 			if err != nil {
-				p.logger.Warn("Failed to read custom template file for hashing, config hash may be inaccurate", slog.String("path", p.opts.TemplatePath), slog.String("error", err.Error()))
-				templateHash = "custom_template_read_error_" + p.opts.Template.Name()
-			} else {
-				templateHash = fmt.Sprintf("%x", sha256.Sum256(tplBytes))
+				// Log warning and return error: Cannot guarantee stable hash without template content
+				p.logger.Error("Failed to read custom template file for hashing, cannot generate reliable config hash", slog.String("path", p.opts.TemplatePath), slog.String("error", err.Error()))
+				return "", fmt.Errorf("%w: failed to read template file '%s' for hashing: %w", ErrConfigHashCalculation, p.opts.TemplatePath, err)
 			}
+			templateHash = fmt.Sprintf("sha256:%x", sha256.Sum256(tplBytes))
 		} else {
-			p.logger.Warn("Custom template provided without TemplatePath, config hash based on template name", slog.String("templateName", p.opts.Template.Name()))
-			templateHash = "custom_template_" + p.opts.Template.Name()
+			// Fallback if TemplatePath isn't set but custom template exists (less reliable)
+			p.logger.Warn("Custom template provided without TemplatePath, config hash based only on template name (less reliable)", slog.String("templateName", p.opts.Template.Name()))
+			templateHash = "custom_template_name:" + p.opts.Template.Name()
 		}
 	}
 	configSubset["templateHash"] = templateHash
 
-	// FrontMatter Config (Ensure sorted Include slice)
+	// 2. FrontMatter Config (Stable serialization)
 	sortedInclude := make([]string, len(p.opts.FrontMatterConfig.Include))
 	copy(sortedInclude, p.opts.FrontMatterConfig.Include)
 	sort.Strings(sortedInclude)
-	staticFMBytes, _ := json.Marshal(p.opts.FrontMatterConfig.Static) // Ignore error for hashing
-
+	staticFMBytes, errMarshalStatic := json.Marshal(p.opts.FrontMatterConfig.Static)
+	if errMarshalStatic != nil {
+		p.logger.Warn("Failed to marshal static front matter for hashing", slog.Any("error", errMarshalStatic))
+		staticFMBytes = []byte("{}")
+	}
 	configSubset["frontMatter"] = map[string]interface{}{
 		"enabled": p.opts.FrontMatterConfig.Enabled,
 		"format":  p.opts.FrontMatterConfig.Format,
@@ -566,7 +640,7 @@ func (p *FileProcessor) CalculateConfigHash() (string, error) {
 		"include": sortedInclude,
 	}
 
-	// Analysis Config (Sort styles)
+	// 3. Analysis Config (Stable serialization)
 	sortedStyles := make([]string, len(p.opts.AnalysisOptions.CommentStyles))
 	copy(sortedStyles, p.opts.AnalysisOptions.CommentStyles)
 	sort.Strings(sortedStyles)
@@ -575,9 +649,13 @@ func (p *FileProcessor) CalculateConfigHash() (string, error) {
 		"commentStyles":   sortedStyles,
 	}
 
-	// Plugin Config (Sort by Stage then Name for stability)
-	sortedPlugins := make([]PluginConfig, len(p.opts.PluginConfigs))
-	copy(sortedPlugins, p.opts.PluginConfigs)
+	// 4. Enabled Plugin Config (Stable serialization)
+	sortedPlugins := make([]PluginConfig, 0, len(p.opts.PluginConfigs))
+	for _, pcfg := range p.opts.PluginConfigs {
+		if pcfg.Enabled {
+			sortedPlugins = append(sortedPlugins, pcfg)
+		}
+	}
 	sort.Slice(sortedPlugins, func(i, j int) bool {
 		if sortedPlugins[i].Stage != sortedPlugins[j].Stage {
 			return sortedPlugins[i].Stage < sortedPlugins[j].Stage
@@ -586,43 +664,51 @@ func (p *FileProcessor) CalculateConfigHash() (string, error) {
 	})
 	var pluginHashes []string
 	for _, pl := range sortedPlugins {
-		if !pl.Enabled {
-			continue
-		}
 		sortedAppliesTo := make([]string, len(pl.AppliesTo))
 		copy(sortedAppliesTo, pl.AppliesTo)
 		sort.Strings(sortedAppliesTo)
-		pluginConfigBytes, _ := json.Marshal(map[string]interface{}{
+		pluginConfigBytes, errMarshalPlugin := json.Marshal(map[string]interface{}{
 			"name":      pl.Name,
 			"stage":     pl.Stage,
 			"command":   pl.Command,
 			"appliesTo": sortedAppliesTo,
 			"config":    pl.Config,
 		})
-		pluginHashes = append(pluginHashes, fmt.Sprintf("%x", sha256.Sum256(pluginConfigBytes)))
+		if errMarshalPlugin != nil {
+			// Log warning and return error: Cannot guarantee stable hash without plugin config
+			p.logger.Error("Failed to marshal plugin config for hashing, cannot generate reliable config hash", slog.String("plugin", pl.Name), slog.Any("error", errMarshalPlugin))
+			return "", fmt.Errorf("%w: failed to marshal config for plugin '%s': %w", ErrConfigHashCalculation, pl.Name, errMarshalPlugin)
+		}
+		pluginHashes = append(pluginHashes, fmt.Sprintf("sha256:%x", sha256.Sum256(pluginConfigBytes)))
 	}
-	configSubset["plugins"] = pluginHashes
+	configSubset["enabledPlugins"] = pluginHashes
 
-	// Other Relevant Options
+	// 5. Other Relevant Options affecting output
 	configSubset["binaryMode"] = p.opts.BinaryMode
 	configSubset["largeFileMode"] = p.opts.LargeFileMode
 	configSubset["largeFileTruncateCfg"] = p.opts.LargeFileTruncateCfg
 	configSubset["defaultEncoding"] = p.opts.DefaultEncoding
-	configSubset["languageMappingsOverride"] = p.opts.LanguageMappingsOverride
+	langMapBytes, errMarshalLangMap := json.Marshal(p.opts.LanguageMappingsOverride)
+	if errMarshalLangMap != nil {
+		p.logger.Warn("Failed to marshal language mappings for hashing", slog.Any("error", errMarshalLangMap))
+		langMapBytes = []byte("{}")
+	}
+	configSubset["languageMappingsOverride"] = string(langMapBytes)
 	configSubset["languageDetectionConfidenceThreshold"] = p.opts.LanguageDetectionConfidenceThreshold
 
-	// Use JSON marshalling with sorted keys for deterministic output
-	configBytes, err := json.Marshal(configSubset)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrConfigHashCalculation, fmt.Errorf("failed to marshal config subset for hashing: %w", err))
+	// 6. Marshal the entire subset using JSON
+	configBytes, errMarshalConfig := json.Marshal(configSubset)
+	if errMarshalConfig != nil {
+		return "", fmt.Errorf("%w: failed to marshal config subset for hashing: %w", ErrConfigHashCalculation, errMarshalConfig)
 	}
 
+	// 7. Hash the resulting JSON bytes
 	hasher.Write(configBytes)
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
 
 // generateOutputPath determines the output path for a source file.
-func generateOutputPath(relPath string) string {
+func generateOutputPath(relPath string) string { // minimal comment
 	if relPath == "." || relPath == "" {
 		return ""
 	}
@@ -631,17 +717,28 @@ func generateOutputPath(relPath string) string {
 	if ext != "" {
 		base = strings.TrimSuffix(relPath, ext)
 	}
+	// FIX: Check base again after trimming suffix
 	if base == "" && ext != "" {
-		return relPath + ".md"
-	} else if base != "" {
-		return base + ".md"
+		// Handle cases like ".bashrc" -> ".bashrc.md"
+		if strings.HasPrefix(relPath, ".") && len(relPath) > 1 {
+			return relPath + ".md"
+		}
+		// Handle cases like "file." -> "file.md"
+		// Or if base was truly empty, return original path + .md ? This seems less likely.
+		// Fallback to avoid returning just ".md"
+		if base == "" {
+			return relPath + ".md"
+		}
 	}
-	return relPath + ".md" // Fallback
+	// Avoid adding .md if base already ends with .md (less likely for source files)
+	if strings.HasSuffix(base, ".md") {
+		return base
+	}
+	return base + ".md"
 }
 
 // convertMetaToMap converts TemplateMetadata struct to map for plugins/frontmatter.
-// ... (implementation remains the same) ...
-func convertMetaToMap(meta *template.TemplateMetadata) map[string]interface{} {
+func convertMetaToMap(meta *template.TemplateMetadata) map[string]interface{} { // minimal comment
 	m := make(map[string]interface{})
 	v := reflect.ValueOf(*meta)
 	t := v.Type()
@@ -650,57 +747,74 @@ func convertMetaToMap(meta *template.TemplateMetadata) map[string]interface{} {
 		fieldName := t.Field(i).Name
 		fieldValue := v.Field(i)
 
-		if !fieldValue.CanInterface() || fieldName == "Content" { // Skip unexported or content
+		// Skip unexported fields or the Options field
+		if !fieldValue.CanInterface() || fieldName == "Options" {
 			continue
 		}
 
 		fieldInterface := fieldValue.Interface()
 
+		// Format time.Time as RFC3339 string for JSON compatibility
 		if tm, ok := fieldInterface.(time.Time); ok {
-			m[fieldName] = tm.Format(time.RFC3339) // Standard format
+			m[fieldName] = tm.Format(time.RFC3339)
 			continue
 		}
 
+		// Handle pointers: assign nil or the underlying value
 		if fieldValue.Kind() == reflect.Ptr {
 			if fieldValue.IsNil() {
 				m[fieldName] = nil
 			} else {
-				m[fieldName] = fieldValue.Elem().Interface()
+				// Specific handling for *GitInfo needed if it's not automatically marshaled
+				if gitInfoPtr, ok := fieldInterface.(*template.GitInfo); ok && gitInfoPtr != nil {
+					// Manually convert GitInfo struct to map or rely on JSON marshal behavior
+					// For simplicity, let's assume GitInfo is simple enough for direct interface{}
+					m[fieldName] = fieldValue.Elem().Interface()
+				} else {
+					m[fieldName] = fieldValue.Elem().Interface()
+				}
 			}
 			continue
 		}
 
+		// Ensure maps are non-nil
 		if fieldValue.Kind() == reflect.Map {
 			if fieldValue.IsNil() {
-				m[fieldName] = make(map[string]interface{})
+				m[fieldName] = make(map[string]interface{}) // Ensure non-nil map for JSON
 			} else {
 				m[fieldName] = fieldInterface
 			}
 			continue
 		}
 
+		// Assign other values directly
 		m[fieldName] = fieldInterface
 	}
+
+	// Remove the potentially large Content field, plugins receive it separately
+	delete(m, "Content")
+
 	return m
 }
 
 // updateMetadataFromMap updates fields in the TemplateMetadata struct based on a map potentially modified by plugins.
-// ... (implementation remains the same) ...
-func updateMetadataFromMap(meta *template.TemplateMetadata, data map[string]interface{}) {
-	if data == nil {
+func updateMetadataFromMap(meta *template.TemplateMetadata, data map[string]interface{}) { // minimal comment
+	if data == nil || meta == nil {
 		return
 	}
-	v := reflect.ValueOf(meta).Elem()
+	v := reflect.ValueOf(meta).Elem() // Ensure we are working with the underlying struct
 
 	for key, value := range data {
-		// Skip fields not intended for plugin modification
+		// Skip fields that shouldn't be updated from plugin metadata
+		// (e.g., Content is handled separately, core path info shouldn't change post-plugin)
 		if key == "Content" || key == "FilePath" || key == "FileName" ||
 			key == "OutputPath" || key == "SizeBytes" || key == "ModTime" ||
-			key == "ContentHash" {
+			key == "ContentHash" || key == "IsBinary" || key == "IsLarge" || key == "Truncated" {
 			continue
 		}
 
 		field := v.FieldByName(key)
+		// Check if field exists and is settable
 		if !field.IsValid() || !field.CanSet() {
 			continue
 		}
@@ -708,66 +822,111 @@ func updateMetadataFromMap(meta *template.TemplateMetadata, data map[string]inte
 		valueReflect := reflect.ValueOf(value)
 		fieldType := field.Type()
 
-		// Handle pointer fields
+		// Direct assignment if types match
+		if valueReflect.IsValid() && valueReflect.Type().AssignableTo(fieldType) {
+			field.Set(valueReflect)
+			continue
+		}
+
+		// Handle pointer fields (*string, *GitInfo)
 		if fieldType.Kind() == reflect.Ptr {
 			elemType := fieldType.Elem()
 			if value == nil {
-				field.Set(reflect.Zero(fieldType)) // Set to nil pointer
-			} else if valueReflect.IsValid() && valueReflect.Type().AssignableTo(elemType) {
-				// If the value can be directly assigned to the element type
-				newPtr := reflect.New(elemType)
-				newPtr.Elem().Set(valueReflect)
-				field.Set(newPtr)
-			} else if valueReflect.Kind() == reflect.Map && elemType == reflect.TypeOf(template.GitInfo{}) {
-				// Handle specific case: Reconstruct GitInfo struct from map
-				if gitMap, ok := value.(map[string]interface{}); ok {
-					newGitInfo := template.GitInfo{}
-					if c, ok := gitMap["Commit"].(string); ok {
-						newGitInfo.Commit = c
+				// If plugin explicitly sets value to null, set pointer to nil
+				field.Set(reflect.Zero(fieldType))
+			} else if valueReflect.IsValid() {
+				// Handle specific pointer types if needed (e.g., *GitInfo from map)
+				if elemType == reflect.TypeOf(template.GitInfo{}) && valueReflect.Kind() == reflect.Map {
+					// Attempt to convert map back to GitInfo struct
+					if gitMap, ok := value.(map[string]interface{}); ok {
+						newGitInfo := template.GitInfo{}
+						if c, ok := gitMap["Commit"].(string); ok {
+							newGitInfo.Commit = c
+						}
+						if a, ok := gitMap["Author"].(string); ok {
+							newGitInfo.Author = a
+						}
+						if e, ok := gitMap["AuthorEmail"].(string); ok {
+							newGitInfo.AuthorEmail = e
+						}
+						if d, ok := gitMap["DateISO"].(string); ok {
+							newGitInfo.DateISO = d
+						}
+						// Set the pointer field to the address of the new struct
+						if field.IsNil() { // Ensure pointer is allocated if nil
+							field.Set(reflect.New(elemType))
+						}
+						field.Elem().Set(reflect.ValueOf(newGitInfo))
 					}
-					if a, ok := gitMap["Author"].(string); ok {
-						newGitInfo.Author = a
+				} else if elemType.Kind() == reflect.String && valueReflect.Kind() == reflect.String {
+					// Set *string
+					strVal := valueReflect.String()
+					// field.Set(reflect.ValueOf(&strVal)) // This creates a pointer to a local var, which is bad
+					if field.IsNil() {
+						field.Set(reflect.New(elemType))
 					}
-					if e, ok := gitMap["AuthorEmail"].(string); ok {
-						newGitInfo.AuthorEmail = e
-					}
-					if d, ok := gitMap["DateISO"].(string); ok {
-						newGitInfo.DateISO = d
-					}
-					field.Set(reflect.ValueOf(&newGitInfo))
+					field.Elem().SetString(strVal)
 				}
-			} else if valueReflect.Kind() == reflect.String && elemType.Kind() == reflect.String {
-				// Handle *string case like ExtractedComments
-				strVal := valueReflect.String()
-				field.Set(reflect.ValueOf(&strVal))
+				// Add other pointer type conversions as needed
 			}
-			// Add more specific pointer type reconstructions if needed
-		} else if valueReflect.IsValid() && valueReflect.Type().AssignableTo(fieldType) {
-			field.Set(valueReflect)
-		} else if valueReflect.Kind() == reflect.Map && fieldType.Kind() == reflect.Map {
-			// Handle map fields like FrontMatter
-			if fmMap, ok := value.(map[string]interface{}); ok && fieldType.Key().Kind() == reflect.String && fieldType.Elem().Kind() == reflect.Interface {
-				field.Set(reflect.ValueOf(fmMap))
-			}
+			continue
 		}
+
+		// Handle map fields (like FrontMatter)
+		if fieldType.Kind() == reflect.Map && valueReflect.Kind() == reflect.Map {
+			// Ensure map types are compatible (e.g., map[string]interface{})
+			if fieldType.Key().Kind() == reflect.String && fieldType.Elem().Kind() == reflect.Interface {
+				// Attempt conversion if plugin returned map[interface{}]interface{}
+				if mapValRaw, ok := value.(map[interface{}]interface{}); ok {
+					convertedMap := make(map[string]interface{})
+					canConvert := true
+					for k, v_ := range mapValRaw {
+						if strKey, okKey := k.(string); okKey {
+							convertedMap[strKey] = v_
+						} else {
+							canConvert = false // Cannot convert non-string key
+							break
+						}
+					}
+					if canConvert {
+						if field.IsNil() { // Ensure the map in the struct is initialized
+							field.Set(reflect.MakeMap(fieldType))
+						}
+						// Merge instead of replace? Current logic replaces.
+						// For merging: reflect.Copy(field, reflect.ValueOf(convertedMap)) might work or manual loop needed.
+						// Replacing for now:
+						field.Set(reflect.ValueOf(convertedMap))
+					}
+				} else if mapValStr, ok := value.(map[string]interface{}); ok {
+					if field.IsNil() {
+						field.Set(reflect.MakeMap(fieldType))
+					}
+					// Replace map content
+					field.Set(reflect.ValueOf(mapValStr))
+				}
+			}
+			continue
+		}
+
+		// Add more type conversion logic here if necessary
+		// (e.g., converting float64 from JSON back to int64 if needed and possible)
 	}
 }
 
 // PluginRunResult holds results from running plugins for a stage.
 type PluginRunResult struct {
 	Content       string                 // Updated content after plugins ran
-	Metadata      map[string]interface{} // Updated metadata after plugins ran
-	PluginsRun    []string               // Names of plugins that actually ran
+	Metadata      map[string]interface{} // Updated metadata after plugins ran (merged)
+	PluginsRun    []string               // Names of plugins that actually ran and succeeded
 	IsFinalOutput bool                   // True if a formatter provided final 'output'
 	Output        string                 // The final output from a formatter
 	FinalPlugin   string                 // Name of the formatter plugin that provided final output
 }
 
 // runPluginsForStage executes applicable plugins for a given stage.
-// ... (implementation remains the same) ...
-func (p *FileProcessor) runPluginsForStage(ctx context.Context, stage string, relPath string, currentContent string, currentMetadata map[string]interface{}) (PluginRunResult, error) {
+func (p *FileProcessor) runPluginsForStage(ctx context.Context, stage string, relPath string, currentContent string, currentMetadata map[string]interface{}) (PluginRunResult, error) { // minimal comment
 	result := PluginRunResult{
-		Content:       currentContent, // Start with current state
+		Content:       currentContent,
 		Metadata:      currentMetadata,
 		PluginsRun:    []string{},
 		IsFinalOutput: false,
@@ -783,25 +942,33 @@ func (p *FileProcessor) runPluginsForStage(ctx context.Context, stage string, re
 		return result, nil
 	}
 
+	p.logger.Debug("Checking plugins for stage", logArgs...)
+	pluginsExecuted := false
+
 	for _, pluginCfg := range p.opts.PluginConfigs {
 		pluginLogArgs := append(logArgs, slog.String("plugin", pluginCfg.Name))
 		select {
 		case <-ctx.Done():
-			p.logger.Debug("Plugin execution cancelled", pluginLogArgs...)
+			p.logger.Debug("Plugin execution cancelled during check", pluginLogArgs...)
 			return result, ctx.Err()
 		default:
 		}
 
+		// Assign stage to config based on map key used in Options (or however it's loaded)
+		// This assumes the loader sets the stage correctly based on where the plugin was defined.
+		// If not set, this logic might need adjustment.
+		// Let's assume opts.PluginConfigs includes the Stage.
 		if !pluginCfg.Enabled || pluginCfg.Stage != stage {
 			continue
 		}
 
 		applies := false
 		if len(pluginCfg.AppliesTo) == 0 {
-			applies = true
+			applies = true // Applies to all files if list is empty
 		} else {
 			for _, pattern := range pluginCfg.AppliesTo {
-				match, _ := filepath.Match(pattern, relPath)
+				// Use filepath.Match for glob patterns against the relative path
+				match, _ := filepath.Match(pattern, relPath) // Ignore potential pattern error
 				if match {
 					applies = true
 					break
@@ -815,50 +982,65 @@ func (p *FileProcessor) runPluginsForStage(ctx context.Context, stage string, re
 		}
 
 		p.logger.Debug("Running plugin", pluginLogArgs...)
+		pluginsExecuted = true
+
 		input := PluginInput{
-			SchemaVersion: PluginSchemaVersion,
+			SchemaVersion: PluginSchemaVersion, // Use constant from this package
 			Stage:         stage,
 			FilePath:      relPath,
-			Content:       result.Content,
-			Metadata:      result.Metadata,
+			Content:       result.Content,  // Pass current content
+			Metadata:      result.Metadata, // Pass current metadata
 			Config:        pluginCfg.Config,
 		}
 
 		pluginOutput, pluginErr := p.pluginRunner.Run(ctx, stage, pluginCfg, input)
 
 		if pluginErr != nil {
-			return result, fmt.Errorf("plugin '%s' failed execution: %w", pluginCfg.Name, pluginErr)
-		}
-		if pluginOutput.Error != "" {
-			pluginErr = fmt.Errorf("plugin '%s' reported error: %s", pluginCfg.Name, pluginOutput.Error)
+			// Log the specific plugin error here for better context
+			p.logger.Error("Plugin execution returned an error", append(pluginLogArgs, slog.String("error", pluginErr.Error()))...)
+			// Return the error directly, ProcessFile will wrap it
 			return result, pluginErr
 		}
 
+		// Append successfully run plugin name
 		result.PluginsRun = append(result.PluginsRun, pluginCfg.Name)
-		result.Content = pluginOutput.Content
 
-		if len(pluginOutput.Metadata) > 0 {
-			for k, v := range pluginOutput.Metadata {
-				result.Metadata[k] = v
-			}
-			p.logger.Debug("Plugin updated metadata", pluginLogArgs...)
+		// Update content based on plugin output ONLY if it's not empty or nil.
+		// PluginOutput uses `omitempty` for JSON, so check length.
+		if pluginOutput.Content != "" {
+			result.Content = pluginOutput.Content
+			p.logger.Debug("Plugin updated content", pluginLogArgs...)
 		}
 
+		// Merge metadata updates from plugin
+		if len(pluginOutput.Metadata) > 0 {
+			for k, v := range pluginOutput.Metadata {
+				result.Metadata[k] = v // Plugin metadata overwrites existing keys
+			}
+			p.logger.Debug("Plugin updated metadata", append(pluginLogArgs, slog.Any("updates", pluginOutput.Metadata))...)
+		}
+
+		// Handle formatter stage specific 'output' field
 		if stage == PluginStageFormatter && pluginOutput.Output != "" {
 			result.Output = pluginOutput.Output
 			result.IsFinalOutput = true
 			result.FinalPlugin = pluginCfg.Name
-			p.logger.Debug("Formatter plugin provided final output", pluginLogArgs...)
+			p.logger.Debug("Formatter plugin provided final output, skipping further processing for this stage", pluginLogArgs...)
+			// IMPORTANT: If a formatter provides final output, we break the loop for this stage
+			// as only one formatter should determine the final output.
 			break
 		}
 	}
 
-	return result, nil
+	if pluginsExecuted {
+		p.logger.Debug("Finished running plugins for stage", append(logArgs, slog.Int("executedCount", len(result.PluginsRun)))...)
+	}
+
+	return result, nil // Success
 }
 
 // generateFrontMatter marshals data into YAML or TOML format including delimiters.
-// ... (implementation remains the same) ...
-func generateFrontMatter(data map[string]interface{}, format string) ([]byte, error) {
+func generateFrontMatter(data map[string]interface{}, format string) ([]byte, error) { // minimal comment
 	var buf bytes.Buffer
 	var marshaledBytes []byte
 	var err error
@@ -867,13 +1049,14 @@ func generateFrontMatter(data map[string]interface{}, format string) ([]byte, er
 		data = make(map[string]interface{})
 	}
 
-	switch format {
+	switch strings.ToLower(format) {
 	case "yaml":
 		marshaledBytes, err = yaml.Marshal(data)
 		if err == nil {
 			buf.WriteString("---\n")
 			buf.Write(marshaledBytes)
-			if !bytes.HasSuffix(marshaledBytes, []byte("\n")) {
+			// Ensure trailing newline before ending delimiter if content exists
+			if len(marshaledBytes) > 0 && !bytes.HasSuffix(marshaledBytes, []byte("\n")) {
 				buf.WriteString("\n")
 			}
 			buf.WriteString("---\n")
@@ -886,16 +1069,19 @@ func generateFrontMatter(data map[string]interface{}, format string) ([]byte, er
 			marshaledBytes = tomlBuf.Bytes()
 			buf.WriteString("+++\n")
 			buf.Write(marshaledBytes)
-			if !bytes.HasSuffix(marshaledBytes, []byte("\n")) {
+			// Ensure trailing newline before ending delimiter if content exists
+			if len(marshaledBytes) > 0 && !bytes.HasSuffix(marshaledBytes, []byte("\n")) {
 				buf.WriteString("\n")
 			}
 			buf.WriteString("+++\n")
 		}
 	default:
+		// Return specific validation error
 		return nil, fmt.Errorf("%w: unsupported front matter format: %s", ErrConfigValidation, format)
 	}
 
 	if err != nil {
+		// Wrap marshalling errors
 		return nil, fmt.Errorf("%w: failed to marshal front matter to %s: %w", ErrFrontMatterGen, format, err)
 	}
 
@@ -903,20 +1089,19 @@ func generateFrontMatter(data map[string]interface{}, format string) ([]byte, er
 }
 
 // truncateContent reduces content size based on config string (bytes or lines).
-// ... (implementation remains the same) ...
-func truncateContent(content []byte, cfg string) ([]byte, error) {
+func truncateContent(content []byte, cfg string) ([]byte, error) { // minimal comment
 	cfg = strings.TrimSpace(strings.ToLower(cfg))
 	var limit int64 = -1
 	isLineLimit := false
 
 	if strings.HasSuffix(cfg, " lines") || strings.HasSuffix(cfg, " line") {
 		lineStr := strings.Fields(cfg)[0]
-		lineLimit, err := strconv.ParseInt(lineStr, 10, 64)
-		if err == nil && lineLimit >= 0 {
+		lineLimit, parseErr := strconv.ParseInt(lineStr, 10, 64)
+		if parseErr == nil && lineLimit >= 0 {
 			limit = lineLimit
 			isLineLimit = true
 		} else {
-			return nil, fmt.Errorf("%w: invalid line limit format in truncate config: %s", ErrConfigValidation, cfg)
+			return nil, fmt.Errorf("%w: invalid line limit format in truncate config '%s': %w", ErrConfigValidation, cfg, parseErr)
 		}
 	} else {
 		sizeStr := cfg
@@ -925,28 +1110,43 @@ func truncateContent(content []byte, cfg string) ([]byte, error) {
 			suffix string
 			mult   int64
 		}{
-			{"kb", 1024}, {"k", 1024},
-			{"mb", 1024 * 1024}, {"m", 1024 * 1024},
 			{"gb", 1024 * 1024 * 1024}, {"g", 1024 * 1024 * 1024},
-			{"b", 1},
+			{"mb", 1024 * 1024}, {"m", 1024 * 1024},
+			{"kb", 1024}, {"k", 1024},
+			{"b", 1}, // Add 'b' for bytes explicitly
 		}
 		numericPart := sizeStr
-		for _, unit := range units {
+		unitFound := false
+		// Iterate *backwards* from longest suffix to shortest (GB -> B)
+		for i := len(units) - 1; i >= 0; i-- {
+			unit := units[i]
 			if strings.HasSuffix(sizeStr, unit.suffix) {
 				numericPart = strings.TrimSuffix(sizeStr, unit.suffix)
 				multiplier = unit.mult
+				unitFound = true
 				break
 			}
 		}
-		numericPart = strings.TrimSpace(numericPart)
-		byteLimit, err := strconv.ParseInt(numericPart, 10, 64)
-		if err == nil && byteLimit >= 0 {
-			limit = byteLimit * multiplier
-		} else {
-			return nil, fmt.Errorf("%w: invalid size format in truncate config: %s", ErrConfigValidation, cfg)
+
+		// Handle plain number (assume bytes if no unit found after checking all)
+		if !unitFound {
+			// Allow plain numbers, assume bytes
+			multiplier = 1
 		}
+
+		numericPart = strings.TrimSpace(numericPart)
+		byteLimit, parseErr := strconv.ParseInt(numericPart, 10, 64)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid numeric value in truncate size config '%s': %w", ErrConfigValidation, cfg, parseErr)
+		}
+		if byteLimit < 0 {
+			return nil, fmt.Errorf("%w: numeric value cannot be negative in truncate size config '%s'", ErrConfigValidation, cfg)
+		}
+		limit = byteLimit * multiplier
+
 	}
 
+	// Double check limit is non-negative (should be caught above, but defensive)
 	if limit < 0 {
 		return nil, fmt.Errorf("%w: calculated limit is negative, invalid config: %s", ErrConfigValidation, cfg)
 	}
@@ -955,31 +1155,48 @@ func truncateContent(content []byte, cfg string) ([]byte, error) {
 		if limit == 0 {
 			return []byte{}, nil
 		}
-		count := int64(0)
+		lineCount := int64(0)
 		endIndex := 0
 		for i, b := range content {
 			if b == '\n' {
-				count++
-				if count == limit {
+				lineCount++
+				if lineCount == limit {
+					// Include the newline itself
 					endIndex = i + 1
 					break
 				}
 			}
-			endIndex = i + 1
+			// If loop finishes without reaching limit, endIndex will be len(content)
+			if i == len(content)-1 {
+				endIndex = len(content)
+			}
+		}
+		// Handle case where content has fewer lines than limit
+		if lineCount < limit {
+			endIndex = len(content)
+		}
+		// Handle potential empty content case
+		if len(content) == 0 {
+			return []byte{}, nil
 		}
 		return content[:endIndex], nil
 	} else { // Byte limit
-		if int64(len(content)) <= limit {
-			return content, nil
-		}
 		byteLimit := limit
-		for byteLimit > 0 && (content[byteLimit]&0xC0) == 0x80 {
-			byteLimit--
+		contentLen := int64(len(content))
+		if contentLen <= byteLimit {
+			return content, nil // No truncation needed
 		}
-		if byteLimit < 0 {
-			byteLimit = 0
+		// Ensure truncation happens at a valid UTF-8 boundary
+		// Go backwards from the limit until we hit the start of a character
+		finalLimit := byteLimit
+		for finalLimit > 0 && (content[finalLimit]&0xC0) == 0x80 { // Check if it's a continuation byte (10xxxxxx)
+			finalLimit--
 		}
-		return content[:byteLimit], nil
+		// Safety check: If loop went too far back (e.g., all continuation bytes), start from 0.
+		if finalLimit < 0 {
+			finalLimit = 0
+		}
+		return content[:finalLimit], nil
 	}
 }
 
