@@ -131,8 +131,8 @@ type CacheManager interface {
 // Options holds all configuration for a GenerateDocs run.
 type Options struct {
 	// --- Core Paths ---
-	InputPath  string `mapstructure:"inputPath"`  // Required: Absolute path to source directory
-	OutputPath string `mapstructure:"outputPath"` // Required: Absolute path to output directory
+	InputPath  string // Required: Absolute path to source directory <-- REMOVED mapstructure tag
+	OutputPath string // Required: Absolute path to output directory <-- REMOVED mapstructure tag
 
 	// --- Application Info ---
 	AppVersion string `mapstructure:"-"` // Application version (e.g., "v3.1.1", "dev"), used for cache validation. Should be populated by caller.

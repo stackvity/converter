@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"reflect" // Required for DecodeHook
+	"path/filepath" // Required for DecodeHook
 	"runtime"
 	"slices" // Requires Go 1.21+
 	"strings"
@@ -150,24 +149,32 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 	// Example: If flag is --template but struct field is TemplatePath and config key is templateFile
 	v.RegisterAlias("templateFile", "template") // Alias --template flag to templateFile config key
 
-	// Apply decode hook for specific types if needed (e.g., time.Duration)
-	// Use mapstructure tags (`mapstructure:"..."`) on the Options struct fields
-	// for automatic mapping during Unmarshal. Viper uses the "mapstructure" tag by default.
-	decodeHook := viper.DecodeHook(stringToTimeDurationHookFunc())
-	unmarshalOpts := []viper.DecoderConfigOption{
-		decodeHook,
-		// REMOVED: Rely on viper's default use of "mapstructure" tag.
-	}
+	// --- REMOVED Decode Hook Application ---
 
 	// --- Unmarshal Final Configuration ---
-	if err := v.Unmarshal(&opts, unmarshalOpts...); err != nil {
+	if err := v.Unmarshal(&opts); err != nil { // Call without hooks
 		tempLogger.Error("Error unmarshalling configuration", slog.Any("error", err))
-		// Check if the error is related to the specific duration parsing hook for better feedback
-		if strings.Contains(err.Error(), "invalid duration format") {
-			return opts, tempLogger, fmt.Errorf("error processing configuration: %w", err)
-		}
 		return opts, tempLogger, fmt.Errorf("error unmarshalling configuration: %w", err)
 	}
+
+	// --- Explicitly Apply Flag Values for Core Paths (overriding others) ---
+	// This ensures command-line flags for critical paths take absolute precedence
+	// over any values potentially unmarshalled from files/env/defaults.
+	if flags.Changed("input") {
+		inputVal, _ := flags.GetString("input") // Ignore error, Cobra handles basic parsing
+		if inputVal != "" {                     // Ensure non-empty value from flag
+			opts.InputPath = inputVal
+			tempLogger.Debug("Input path explicitly set from flag", slog.String("path", opts.InputPath))
+		}
+	}
+	if flags.Changed("output") {
+		outputVal, _ := flags.GetString("output")
+		if outputVal != "" {
+			opts.OutputPath = outputVal
+			tempLogger.Debug("Output path explicitly set from flag", slog.String("path", opts.OutputPath))
+		}
+	}
+	// --- END Explicit Flag Application for Core Paths ---
 
 	// --- Explicitly Handle Flag Overrides for Booleans ---
 	// Viper/Cobra binding can sometimes be tricky with boolean flags.
@@ -271,7 +278,42 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 		logger.Debug("Using embedded default template")
 	}
 
+	// --- MANUALLY PARSE TIME.DURATION AFTER UNMARSHAL ---
+	// The WatchConfig.Debounce field is populated as a string by Viper
+	debounceDuration, err := time.ParseDuration(opts.WatchConfig.Debounce)
+	if err != nil {
+		// Check if a flag explicitly set an invalid debounce string
+		// TODO: Check if the flag name for watch.debounce needs specific binding or if viper handles nested keys from flags
+		// Assuming viper maps --watch.debounce or similar; if not, flag parsing needs adjustment or direct access.
+		// If "watch-debounce" flag exists directly:
+		if flags.Changed("watch-debounce") { // Use direct flag name if defined
+			err = fmt.Errorf("%w: invalid watch debounce duration '%s' specified via flag or config: %w", converter.ErrConfigValidation, opts.WatchConfig.Debounce, err)
+			logger.Error(err.Error(), slog.String("key", "watch.debounce"), slog.String("value", opts.WatchConfig.Debounce))
+			// Decide if this should be fatal - likely yes if user set it explicitly via flag
+			return opts, logger, err
+		}
+		// Otherwise, log warning and use default if parsing string from config/default fails
+		defaultDuration := converter.DefaultWatchDebounceDuration
+		// Use the final logger instance here if possible, else tempLogger
+		logger.Warn("Could not parse watch.debounce string, using default",
+			slog.String("value", opts.WatchConfig.Debounce),
+			slog.Duration("default", defaultDuration),
+			slog.String("error", err.Error()))
+		debounceDuration = defaultDuration
+	}
+	// Check for negative duration after parsing
+	if debounceDuration < 0 {
+		err = fmt.Errorf("%w: invalid negative watch debounce duration '%s' for key 'watch.debounce'", converter.ErrConfigValidation, opts.WatchConfig.Debounce)
+		logger.Error(err.Error(), slog.String("key", "watch.debounce"), slog.String("value", opts.WatchConfig.Debounce))
+		return opts, logger, err
+	}
+	// Assign the parsed duration to the correct field in Options
+	opts.WatchDebounce = debounceDuration
+	// --------------------------------------------------------
+
 	// --- Final Validation and Derivations ---
+	// Now call validateAndDeriveOptions AFTER explicitly setting InputPath/OutputPath from flags
+	// AND manually parsing WatchDebounce.
 	if err := validateAndDeriveOptions(&opts, logger, flags); err != nil {
 		// Specific error logged within validation function
 		// Ensure the returned error includes context that it's a validation issue
@@ -350,6 +392,7 @@ func isValidEnumValue[T ~string](value T, allowedValues []T) bool {
 // It wraps errors with converter.ErrConfigValidation.
 func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flags *pflag.FlagSet) error {
 	// === Path Validations ===
+	// InputPath and OutputPath should have been explicitly set from flags if provided
 	if opts.InputPath == "" {
 		err := fmt.Errorf("%w: input path is required (-i, --input)", converter.ErrConfigValidation)
 		logger.Error(err.Error(), slog.String("key", "InputPath"))
@@ -467,30 +510,7 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 		logger.Debug("Cache disabled")
 	}
 
-	// Parse WatchDebounce string after unmarshalling
-	debounceDuration, err := time.ParseDuration(opts.WatchConfig.Debounce)
-	if err != nil {
-		// Check if a flag explicitly set an invalid debounce string
-		if flags.Changed("watch-debounce") {
-			err = fmt.Errorf("%w: invalid watch debounce duration '%s' specified via flag or config: %w", converter.ErrConfigValidation, opts.WatchConfig.Debounce, err)
-			logger.Error(err.Error(), slog.String("key", "watch.debounce"), slog.String("value", opts.WatchConfig.Debounce))
-			return err
-		}
-		// Otherwise, log warning and use default
-		defaultDuration := converter.DefaultWatchDebounceDuration
-		logger.Warn("Could not parse watch.debounce string, using default",
-			slog.String("value", opts.WatchConfig.Debounce),
-			slog.Duration("default", defaultDuration),
-			slog.String("error", err.Error()))
-		debounceDuration = defaultDuration
-	}
-	if debounceDuration < 0 {
-		err = fmt.Errorf("%w: invalid negative watch debounce duration '%s' for key 'watch.debounce'", converter.ErrConfigValidation, opts.WatchConfig.Debounce)
-		logger.Error(err.Error(), slog.String("key", "watch.debounce"), slog.String("value", opts.WatchConfig.Debounce))
-		return err
-	}
-	opts.WatchDebounce = debounceDuration // Store the actual duration
-	logger.Debug("Watch debounce set", slog.Duration("duration", opts.WatchDebounce))
+	// WatchDebounce is handled *after* unmarshal now
 
 	// Derive GitDiffMode from flags (using pflag Changed method for certainty)
 	opts.GitDiffMode = converter.GitDiffModeNone // Default
@@ -580,7 +600,7 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 		slog.Int("concurrency", opts.Concurrency),
 		slog.Int64("largeFileThresholdBytes", opts.LargeFileThreshold),
 		slog.String("cacheFilePath", opts.CacheFilePath),
-		slog.Duration("watchDebounceDuration", opts.WatchDebounce),
+		slog.Duration("watchDebounceDuration", opts.WatchDebounce), // Log the derived Duration
 		slog.String("gitDiffMode", string(opts.GitDiffMode)),
 		slog.Int("gitChangedFileCount", len(opts.GitChangedFiles)),
 		slog.Bool("tuiEnabledEffective", opts.TuiEnabled),
@@ -589,30 +609,6 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 	return nil
 }
 
-// stringToTimeDurationHookFunc provides a Viper decode hook to parse strings into time.Duration.
-// It only applies the conversion if the source is a string and the target is time.Duration.
-func stringToTimeDurationHookFunc() viper.DecoderConfigOption {
-	return viper.DecodeHook(func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
-		if f.Kind() != reflect.String || t != reflect.TypeOf(time.Duration(0)) {
-			return data, nil // No conversion needed
-		}
-		durationStr, ok := data.(string)
-		if !ok {
-			// This should not happen due to the f.Kind() check, but handle defensively
-			return data, fmt.Errorf("expected string for duration parsing, got %T", data)
-		}
-		// Allow empty string to represent zero duration (or default)
-		if durationStr == "" {
-			return time.Duration(0), nil
-		}
-		d, err := time.ParseDuration(durationStr)
-		if err != nil {
-			// Return error to viper to handle invalid duration format
-			// Wrap with config validation error for consistency
-			return nil, fmt.Errorf("%w: invalid duration format '%s': %w", converter.ErrConfigValidation, durationStr, err)
-		}
-		return d, nil
-	})
-}
+// --- REMOVED stringToTimeDurationHookFunc ---
 
 // --- END OF FINAL REVISED FILE internal/cli/config/config.go ---
