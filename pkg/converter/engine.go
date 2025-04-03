@@ -15,7 +15,7 @@ import (
 
 	// Import necessary subpackages
 	"github.com/stackvity/stack-converter/pkg/converter/analysis"
-	"github.com/stackvity/stack-converter/pkg/converter/cache" // Correctly imported
+	"github.com/stackvity/stack-converter/pkg/converter/cache" // Correct import path
 	"github.com/stackvity/stack-converter/pkg/converter/encoding"
 	"github.com/stackvity/stack-converter/pkg/converter/language"
 	"github.com/stackvity/stack-converter/pkg/converter/template"
@@ -81,6 +81,7 @@ func NewEngine(ctx context.Context, opts Options) (*Engine, error) { // minimal 
 	} else if opts.CacheEnabled {
 		// Attempt to initialize FileCacheManager only if enabled and no manager injected
 		if opts.CacheFilePath == "" && opts.OutputPath != "" {
+			// Use cache.CacheFileName constant from the cache package
 			opts.CacheFilePath = filepath.Join(opts.OutputPath, cache.CacheFileName)
 			logger.Debug("CacheFilePath not set, defaulting", "path", opts.CacheFilePath)
 		}
@@ -98,11 +99,13 @@ func NewEngine(ctx context.Context, opts Options) (*Engine, error) { // minimal 
 			// This will cause a compile error until implemented there.
 			// Using NoOpCacheManager here to allow engine.go to compile standalone.
 			// Replace the next line with the actual call when ready:
+			// Use cache.CacheSchemaVersion constant from the cache package
 			// defaultCacheMgr := cache.NewFileCacheManager(logger.Handler(), cache.CacheSchemaVersion, appVersion)
 			logger.Warn("PLACEHOLDER: Attempting to initialize FileCacheManager, but constructor likely missing in cache package. Using NoOp manager.")
 			defaultCacheMgr := &NoOpCacheManager{} // Using NoOp as placeholder
 			// --- End Placeholder ---
 
+			// Use cache.CacheSchemaVersion constant from the cache package
 			logger.Debug("Initializing FileCacheManager (placeholder used)", "path", opts.CacheFilePath, "schemaVersion", cache.CacheSchemaVersion, "appVersion", appVersion)
 
 			// Attempt to load using the (potentially placeholder) manager
@@ -111,6 +114,7 @@ func NewEngine(ctx context.Context, opts Options) (*Engine, error) { // minimal 
 				// Loading logic might differ slightly depending on placeholder vs real implementation
 				if errors.Is(cacheLoadErr, os.ErrNotExist) {
 					logger.Info("Cache file not found, creating new cache.", "path", opts.CacheFilePath)
+					// Use cache.ErrCacheLoad constant from the cache package
 				} else if errors.Is(cacheLoadErr, cache.ErrCacheLoad) {
 					logger.Warn("Failed to load cache file (corruption or version mismatch?), treating as miss.", "path", opts.CacheFilePath, "error", cacheLoadErr.Error())
 				} else {
@@ -249,6 +253,7 @@ func (e *Engine) Run() (Report, error) { // minimal comment
 				if finalErr == nil {
 					// Report cache persist error only if no other fatal error occurred
 					// Use the exported error variable from the cache package
+					// Use cache.ErrCachePersist constant from the cache package
 					finalErr = fmt.Errorf("failed to persist cache: %w", cache.ErrCachePersist)
 				}
 			}
@@ -472,6 +477,8 @@ func (e *Engine) aggregateResults(resultsChan <-chan interface{}, done chan<- st
 		switch r := result.(type) {
 		case FileInfo:
 			e.aggregator.addProcessed(r)
+			// FIX: Use CacheStatusHit constant defined in this package
+			// (removed 'cache.' prefix)
 			if r.CacheStatus == CacheStatusHit {
 				e.aggregator.addCached(r)
 			}

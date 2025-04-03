@@ -51,10 +51,6 @@ var knownTextMIMESuffixes = map[string]bool{
 
 // EncodingHandler defines the interface for detecting character encoding,
 // converting content to UTF-8, and detecting binary files.
-// Godoc implemented here defining contract (BE-TASK-015).
-//
-// Stability: Public Stable API - Implementations can be provided externally.
-// Adherence to the method contracts, especially error handling and return value semantics, is required.
 type EncodingHandler interface {
 	// DetectAndDecode attempts to detect the encoding of the input content
 	// and convert it to UTF-8. It returns the UTF-8 bytes, the detected
@@ -71,8 +67,6 @@ type EncodingHandler interface {
 
 // goCharsetEncodingHandler implements EncodingHandler using Go's standard library
 // and golang.org/x/net/html/charset.
-// Godoc implemented here defining contract (BE-TASK-015).
-// This is the default implementation used if none is injected via Options.
 type goCharsetEncodingHandler struct {
 	defaultEncoding string
 }
@@ -86,130 +80,105 @@ func NewGoCharsetEncodingHandler(defaultEncoding string) EncodingHandler { // mi
 
 // DetectAndDecode implements the EncodingHandler interface.
 func (h *goCharsetEncodingHandler) DetectAndDecode(content []byte) ([]byte, string, bool, error) { // minimal comment
-	// DetermineEncoding returns the detected encoding, its canonical name, and certainty.
 	detectedEncodingImpl, name, certain := charset.DetermineEncoding(content, "")
 
+	// Apply fallback if detection was uncertain and a default is provided
 	if !certain && h.defaultEncoding != "" {
-		// charset.Lookup returns the encoding and its canonical name, or nil if not found.
-		// It does NOT return an error directly.
 		encodingLookup, lookupName := charset.Lookup(h.defaultEncoding)
-		if encodingLookup == nil {
-			// Default encoding specified was invalid, fall back to initial guess
-			// **Caller should log a warning about the invalid defaultEncoding.**
-			// Re-determination is redundant, just use the initial values.
-			// detectedEncodingImpl, name, certain = charset.DetermineEncoding(content, "")
-		} else {
-			// Valid default encoding found, use it.
+		if encodingLookup != nil {
+			// Valid default encoding found, use it
 			detectedEncodingImpl = encodingLookup
-			name = lookupName // Use the canonical name returned by Lookup
+			name = lookupName // Use canonical name from lookup
 			certain = true    // Treat specified default as certain
 		}
+		// If lookup fails, proceed with the initial uncertain guess `detectedEncodingImpl`
 	}
-	// If still uncertain here (no default, or default was invalid), proceed with the initial guess.
-	// **Caller might want to log a warning if 'certain' is false.**
 
-	// If detection completely failed (no guess, no default), assume UTF-8.
+	// If no encoding was detected or assumed (even after fallback check), assume UTF-8
 	if detectedEncodingImpl == nil {
-		// If name is also empty (which DetermineEncoding might do for UTF-8/ASCII), set it explicitly.
 		if name == "" {
 			name = "utf-8"
 		}
-		return content, name, certain, nil // Return original content and certainty (likely false)
+		// Return original content, maybe check if it's valid UTF-8? For now, assume valid.
+		// Certainty remains the original value unless default was applied.
+		return content, name, certain, nil
 	}
 
-	// Attempt conversion if needed
+	// Attempt conversion only if an encoding implementation was determined
 	decoder := detectedEncodingImpl.NewDecoder()
 	transformer := transform.NewReader(bytes.NewReader(content), decoder)
 
 	utf8Content, err := io.ReadAll(transformer)
 	if err != nil {
-		// Conversion error occurred
 		finalName := name
-		// If name is empty (could happen if original detection was uncertain and no valid default used),
-		// try to find a reasonable name, or default to "unknown".
 		if finalName == "" {
-			// charset.IANAEncodingName is not public. We already have 'name' from DetermineEncoding or Lookup.
-			// If 'name' is still empty, we can fallback.
-			finalName = "unknown"
+			// Try to get a name from the encoding itself if possible, else unknown
+			finalName = "unknown" // Fallback name
 		}
-		// Wrap error for better context
-		return utf8Content, finalName, certain, fmt.Errorf("failed to convert from '%s': %w", finalName, err)
+		// On conversion error, return original content and the error
+		return content, finalName, certain, fmt.Errorf("failed to convert from '%s': %w", finalName, err)
 	}
 
-	// If name is empty (could happen if original detection was uncertain and no valid default used),
-	// and conversion succeeded, set name to "unknown".
-	// The 'name' returned by DetermineEncoding or Lookup should be the best identifier we have.
+	// Ensure a name is returned even if conversion succeeded but name was empty
 	if name == "" {
-		name = "unknown" // Fallback if canonical name couldn't be determined by charset funcs
+		name = "unknown" // Fallback name if none determined
 	}
-	// If detection was certain or default used, 'name' should already be set correctly.
 
 	return utf8Content, name, certain, nil
 }
 
 // isMIMETextBased checks if a detected MIME type is likely text-based.
 func isMIMETextBased(contentType string) bool { // minimal comment
-	// Normalize the content type (remove parameters like ;charset=...)
-	contentType = strings.SplitN(contentType, ";", 2)[0]
-	contentType = strings.TrimSpace(contentType)
+	mimeType := strings.SplitN(contentType, ";", 2)[0]
+	mimeType = strings.TrimSpace(mimeType)
 
-	// Handle common case explicitly
-	if strings.HasPrefix(contentType, "text/") {
+	if strings.HasPrefix(mimeType, "text/") {
 		return true
 	}
-	// Check against known application types that are text-based
-	if _, ok := knownTextMIMEPrefixes[contentType]; ok {
+	if _, ok := knownTextMIMEPrefixes[mimeType]; ok {
 		return true
 	}
-	// Check for common text-based suffixes like +xml or +json
 	for suffix := range knownTextMIMESuffixes {
-		if strings.HasSuffix(contentType, suffix) {
+		if strings.HasSuffix(mimeType, suffix) {
 			return true
 		}
 	}
-	// Treat octet-stream as potentially text, relying on null check
-	if contentType == "application/octet-stream" {
+	// Allow octet-stream to potentially be text, rely on null check
+	if mimeType == "application/octet-stream" {
 		return true
 	}
-
 	return false
 }
 
 // IsBinary implements the EncodingHandler interface.
 func (h *goCharsetEncodingHandler) IsBinary(content []byte) bool { // minimal comment
-	// Prevent issues with empty content
-	if len(content) == 0 {
+	contentLen := len(content)
+	if contentLen == 0 {
 		return false
 	}
 
-	// 1. Check MIME type using the beginning of the content
-	checkLimitSniff := len(content)
+	// 1. MIME type check
+	checkLimitSniff := contentLen
 	if checkLimitSniff > sniffLen {
 		checkLimitSniff = sniffLen
 	}
 	contentType := http.DetectContentType(content[:checkLimitSniff])
-
 	if !isMIMETextBased(contentType) {
-		// If it's not explicitly recognized as likely text-based, consider it binary.
-		return true
+		return true // Definitely not text-like based on MIME
 	}
 
-	// 2. Check for excessive null bytes if MIME type was inconclusive or text-like
-	checkLimitNull := len(content)
+	// 2. Null byte check (only if MIME check passed or was inconclusive)
+	checkLimitNull := contentLen
 	if checkLimitNull > checkLen {
 		checkLimitNull = checkLen
 	}
-	// Avoid division by zero
+	// CheckLimitNull should always be > 0 if contentLen > 0
 	if checkLimitNull == 0 {
-		return false
+		return false // Should not happen, defensive
 	}
 	nullCount := bytes.Count(content[:checkLimitNull], []byte{0x00})
 
-	if float64(nullCount)/float64(checkLimitNull) > nullThreshold {
-		return true // Null byte threshold overrides MIME detection if it suggested text/octet-stream
-	}
-
-	return false
+	return float64(nullCount)/float64(checkLimitNull) > nullThreshold
 }
 
 // --- END OF FINAL REVISED FILE pkg/converter/encoding/handler.go ---

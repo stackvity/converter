@@ -1,0 +1,52 @@
+# --- START OF REVISED FILE .gitignore ---
+# Go build outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test outputs
+*.test
+*.prof
+coverage.out
+coverage.html
+*.cover
+
+# Editor/IDE directories/files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Dependency directories (if not committed - standard practice)
+vendor/
+
+# Compiled binary output directory
+bin/
+/bin/ # Explicitly ignore bin at the root
+
+# Stack-converter specific cache files
+.stackconverter.cache
+*.stackconverter.cache.tmp-* # Temporary files during cache persistence
+
+# Environment configuration files (if any)
+.env*
+!/.env.example
+
+# Node.js dev dependency files (for commitlint etc.)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Temporary build/test files
+*.tmp
+
+# --- END OF REVISED FILE .gitignore ---

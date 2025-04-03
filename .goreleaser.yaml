@@ -1,0 +1,127 @@
+# --- START OF REVISED FILE .goreleaser.yaml ---
+# .goreleaser.yaml
+# Configuration for GoReleaser tool for automated releases.
+# Ref: cicd.md#8.6, backlog-backend.md#6 (SC-STORY-068)
+# (Fixed schema version, moved notes to header/footer)
+
+version: 2 # GoReleaser configuration schema version
+
+project_name: stack-converter
+
+# --- Build Configuration ---
+builds:
+  - id: stack-converter
+    main: ./cmd/stack-converter/
+    binary: stack-converter
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+# --- Archiving Configuration ---
+archives:
+  - id: default
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+      - configs/stack-converter.yaml
+      - docs/plugin_schema.md
+      - docs/report_schema.md
+      - docs/template_guide.md
+      - examples/**/*
+
+# --- Checksum Generation ---
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# --- Signing Configuration ---
+signs:
+  - id: checksum_signing
+    artifacts: checksum
+    args:
+      [
+        "--batch",
+        "--local-user",
+        "{{ .Env.GPG_FINGERPRINT }}",
+        "--output",
+        "${signature}",
+        "--detach-sign",
+        "${artifact}",
+      ]
+
+# --- Release Configuration ---
+release:
+  draft: false
+  prerelease: auto
+  name_template: '{{.Tag}} - {{.Env.RELEASE_NAME_SUFFIX | default "Stable"}}'
+  # **FIXED:** Moved content from 'notes' to 'header' and 'footer'
+  header: |
+    ## Installation
+
+    See the [README](https://github.com/stackvity/stack-converter#installation) for installation instructions.
+
+    **Verify your download:**
+    ```sh
+    # Download checksums.txt and checksums.txt.asc from this release
+    # Import the release signing key (see README for key source)
+    gpg --verify checksums.txt.asc checksums.txt
+    # Verify the specific archive (e.g., Linux amd64)
+    sha256sum -c checksums.txt --ignore-missing --status && echo "OK" || echo "FAIL"
+    ```
+  footer: |
+    ---
+    ## Changelog
+
+    {{ .Changelog }}
+
+    **Full Changelog**: {{ .PreviousTag }}...{{ .Tag }}
+
+# --- Changelog Generation ---
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^build:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+      - "go mod tidy"
+  groups:
+    - title: "🚀 Features"
+      regexp: "^feat[(\\w)]*:"
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: "^fix[(\\w)]*:"
+      order: 1
+    - title: "🔄 Refactors"
+      regexp: "^refactor[(\\w)]*:"
+      order: 2
+    - title: "🧪 Tests"
+      regexp: "^test[(\\w)]*:"
+      order: 3
+    - title: "📄 Documentation"
+      regexp: "^docs[(\\w)]*:"
+      order: 4
+    - title: "⚙️ Miscellaneous Chores"
+      regexp: "^chore[(\\w)]*:"
+      order: 999
+# --- Modelines for editor config ---
+# vim: set ts=2 sw=2 tw=0 et :
+# --- END OF REVISED FILE .goreleaser.yaml ---

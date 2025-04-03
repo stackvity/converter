@@ -3,25 +3,18 @@ package hooks
 
 import (
 	"fmt"
-	// "io" // io is no longer needed directly for Stderr
 	"log/slog"
-	"os" // Import the 'os' package for os.Stderr
+	"os"
 	"sync"
 	"time"
 
-	// Use tea "github.com/charmbracelet/bubbletea" // Import if directly interacting with tea.Program
-	// Use progressbar "github.com/schollz/progressbar/v3" // Import if directly interacting with progressbar
 	"github.com/stackvity/stack-converter/pkg/converter"
 )
 
 // --- TUI Message Structs ---
-// Note: Consider moving these definitions to the package containing the TUI
-// implementation (e.g., internal/cli/ui/) for better organization.
 
-// FileDiscoveredMsg signals that a file/directory was found by the walker.
 type FileDiscoveredMsg struct{ Path string }
 
-// FileStatusUpdateMsg signals a change in a file's processing status.
 type FileStatusUpdateMsg struct {
 	Path     string
 	Status   converter.Status
@@ -29,28 +22,23 @@ type FileStatusUpdateMsg struct {
 	Duration time.Duration
 }
 
-// RunCompleteMsg signals the completion of the entire conversion run.
 type RunCompleteMsg struct{ Report converter.Report }
 
 // --- Hook Implementation ---
 
-// CLIHooks implements the converter.Hooks interface, bridging library events
-// to the CLI's UI layer (TUI, Logger, Progress Bar).
 type CLIHooks struct {
 	logger         *slog.Logger
 	tuiEnabled     bool
 	verboseEnabled bool
-	tuiProgram     TUIProgram  // Decoupled TUI program interface
-	progressBar    ProgressBar // Decoupled Progress Bar interface
-	mu             sync.Mutex  // Protects concurrent access to progressBar
+	tuiProgram     TUIProgram
+	progressBar    ProgressBar
+	mu             sync.Mutex
 }
 
-// TUIProgram defines the interface needed to interact with the Bubble Tea program.
 type TUIProgram interface {
 	Send(msg interface{})
 }
 
-// ProgressBar defines the interface needed to interact with the progress bar.
 type ProgressBar interface {
 	Add(num int) error
 	Describe(description string) error
@@ -59,13 +47,11 @@ type ProgressBar interface {
 
 // --- No-Op Implementations for Decoupling ---
 
-// NoOpTUIProgram provides a default null implementation.
 type NoOpTUIProgram struct{}
 
 // Send implements TUIProgram.
 func (n *NoOpTUIProgram) Send(msg interface{}) {}
 
-// NoOpProgressBar provides a default null implementation.
 type NoOpProgressBar struct{}
 
 // Add implements ProgressBar.
@@ -80,13 +66,12 @@ func (n *NoOpProgressBar) Close() error { return nil }
 // --- Constructor ---
 
 // NewCLIHooks creates a new CLIHooks instance.
-// Pass nil for tuiProgram or progressBar if not applicable; NoOp versions will be used.
-func NewCLIHooks(logger *slog.Logger, tuiEnabled, verboseEnabled bool, tuiProg TUIProgram, progBar ProgressBar) converter.Hooks {
+func NewCLIHooks(logger *slog.Logger, tuiEnabled, verboseEnabled bool, tuiProg TUIProgram, progBar ProgressBar) converter.Hooks { // minimal comment
 	if tuiProg == nil {
-		tuiProg = &NoOpTUIProgram{} // Ensure non-nil interface
+		tuiProg = &NoOpTUIProgram{}
 	}
 	if progBar == nil {
-		progBar = &NoOpProgressBar{} // Ensure non-nil interface
+		progBar = &NoOpProgressBar{}
 	}
 	return &CLIHooks{
 		logger:         logger,
@@ -100,19 +85,17 @@ func NewCLIHooks(logger *slog.Logger, tuiEnabled, verboseEnabled bool, tuiProg T
 // --- Interface Method Implementations ---
 
 // OnFileDiscovered handles the event when a file or directory is found by the walker.
-func (h *CLIHooks) OnFileDiscovered(path string) error {
+func (h *CLIHooks) OnFileDiscovered(path string) error { // minimal comment
 	if h.tuiEnabled {
 		h.tuiProgram.Send(FileDiscoveredMsg{Path: path})
 	} else if h.verboseEnabled {
 		h.logger.Debug("File discovered", "path", path)
 	}
-	return nil // Library ignores hook errors
+	return nil
 }
 
 // OnFileStatusUpdate handles events when a file's processing status changes.
-// This method MUST be thread-safe.
-func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, message string, duration time.Duration) error {
-	// TUI Mode: Send a message
+func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, message string, duration time.Duration) error { // minimal comment
 	if h.tuiEnabled {
 		h.tuiProgram.Send(FileStatusUpdateMsg{
 			Path:     path,
@@ -123,10 +106,8 @@ func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, mess
 		return nil
 	}
 
-	// Non-TUI Modes:
-	// Verbose Logging Mode
 	if h.verboseEnabled {
-		logLevel := slog.LevelDebug // Default for most statuses
+		logLevel := slog.LevelDebug
 		logMsg := "File status updated"
 		attrs := []any{
 			slog.String("path", path),
@@ -136,7 +117,6 @@ func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, mess
 			attrs = append(attrs, slog.Duration("duration", duration))
 		}
 		if message != "" {
-			// Use "error" key if status is Failed, otherwise "message"
 			logKey := "message"
 			if status == converter.StatusFailed {
 				logKey = "error"
@@ -151,66 +131,45 @@ func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, mess
 			logLevel = slog.LevelError
 			logMsg = "File processing failed"
 		}
-		// Log using the handler passed to the logger in NewCLIHooks
-		// Using logger.Log(nil, ...) indicates logging without a specific context.
 		h.logger.Log(nil, logLevel, logMsg, attrs...)
 		return nil
 	}
 
-	// Progress Bar Mode (Non-Verbose, TTY)
 	if h.progressBar != nil {
-		// Protect concurrent updates to progress bar
 		h.mu.Lock()
 		defer h.mu.Unlock()
-
-		// Only increment progress bar on final states
 		isFinalState := status == converter.StatusSuccess ||
 			status == converter.StatusFailed ||
 			status == converter.StatusSkipped ||
 			status == converter.StatusCached
-
 		if isFinalState {
-			_ = h.progressBar.Add(1) // Ignore potential error
-			// Optionally update description briefly
-			// _ = h.progressBar.Describe(fmt.Sprintf("Processed: %s", filepath.Base(path)))
+			_ = h.progressBar.Add(1)
 		}
-
-		// Log errors even in progress bar mode
+		if status == converter.StatusFailed {
+			h.logger.Error("File processing failed", "path", path, "error", message)
+		}
+	} else {
 		if status == converter.StatusFailed {
 			h.logger.Error("File processing failed", "path", path, "error", message)
 		}
 	}
 
-	// Standard Log Mode (Non-Verbose, Non-TTY, Non-Progress)
-	// Only log errors
-	if !h.tuiEnabled && !h.verboseEnabled && h.progressBar == nil {
-		if status == converter.StatusFailed {
-			h.logger.Error("File processing failed", "path", path, "error", message)
-		}
-	}
-
-	return nil // Library ignores hook errors
+	return nil
 }
 
 // OnRunComplete handles the event when the entire conversion process finishes.
-// Sends the final report to the TUI or finalizes the progress bar.
-func (h *CLIHooks) OnRunComplete(report converter.Report) error {
+func (h *CLIHooks) OnRunComplete(report converter.Report) error { // minimal comment
 	if h.tuiEnabled {
 		h.tuiProgram.Send(RunCompleteMsg{Report: report})
 	} else {
-		// Final text summary logging is now handled by the main CLI logic in root.go
-		// This hook only needs to finalize the progress bar if it was used.
 		if h.progressBar != nil {
-			// Ensure mutex protection during close, although contention is less likely here.
 			h.mu.Lock()
-			_ = h.progressBar.Close() // Ignore error closing bar
+			_ = h.progressBar.Close()
 			h.mu.Unlock()
-			// Add a newline after the progress bar finishes to prevent prompt overlap.
-			// Use os.Stderr instead of io.Stderr
-			_, _ = fmt.Fprintf(os.Stderr, "\n") // FIX: Use os.Stderr
+			_, _ = fmt.Fprintln(os.Stderr)
 		}
 	}
-	return nil // Library ignores hook errors
+	return nil
 }
 
 // --- END OF FINAL REVISED FILE internal/cli/hooks/hooks.go ---

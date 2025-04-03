@@ -1,0 +1,78 @@
+# --- START OF REVISED FILE .github/workflows/release.yaml ---
+# GitHub Actions Release Workflow using GoReleaser.
+# Triggered by pushing Git tags matching v*.*.*
+# Ref: cicd.md#2.2.5, backlog-backend.md#6 (SC-STORY-069)
+# (No changes needed)
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*" # Trigger on version tags like v1.0.0, v1.2.3-beta1 etc.
+
+permissions:
+  contents: write
+  # id-token: write # If using OIDC
+
+jobs:
+  goreleaser:
+    name: Run GoReleaser
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          # trust_level: 5 # Use with caution
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
+
+      - name: Notify Slack on Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "✅ Release successful for `${{ github.repository }}` tag `${{ github.ref_name }}`.",
+              "blocks": [
+                { "type": "section", "text": { "type": "mrkdwn", "text": "✅ Release successful for `${{ github.repository }}` tag `${{ github.ref_name }}`." } },
+                { "type": "section", "text": { "type": "mrkdwn", "text": "Release Notes: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}" } }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "❌ Release failed for `${{ github.repository }}` tag `${{ github.ref_name }}`.",
+              "blocks": [
+                { "type": "section", "text": { "type": "mrkdwn", "text": "❌ Release failed for `${{ github.repository }}` tag `${{ github.ref_name }}`." } },
+                { "type": "section", "text": { "type": "mrkdwn", "text": "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" } }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_WEBHOOK_URL }}
+# --- END OF REVISED FILE .github/workflows/release.yaml ---

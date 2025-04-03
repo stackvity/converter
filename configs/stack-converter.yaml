@@ -1,5 +1,9 @@
-# --- START OF FINAL FILE configs/stack-converter.yaml ---
-# (No changes needed from previous version based on recommendations)
+# --- START OF REVISED FILE configs/stack-converter.yaml ---
+# MAINTAINER NOTE: This example configuration file MUST be kept synchronized
+# with the options defined in the converter.Options struct, the default values
+# in converter/constants.go, and the configuration loading logic in
+# internal/cli/config/config.go.
+# --------------------------------------------------------------------------
 # Default Example Configuration for stack-converter
 # --------------------------------------------------
 # This file shows many available options with default or example values.
@@ -225,4 +229,4 @@ profiles:
       diffOnly: true # Process only staged changes (verify implementation detail)
     concurrency: 2 # Limit resource usage
 
-# --- END OF FINAL FILE configs/stack-converter.yaml ---
+# --- END OF REVISED FILE configs/stack-converter.yaml ---

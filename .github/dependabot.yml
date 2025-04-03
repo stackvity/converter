@@ -1,0 +1,36 @@
+# --- START OF REVISED FILE .github/dependabot.yml ---
+# Configuration for Dependabot updates. Ref: cicd.md#7.3
+# (No changes needed)
+
+version: 2
+updates:
+  # Maintain dependencies for Go Modules
+  - package-ecosystem: "gomod" # Go modules
+    directory: "/" # Location of package manifests
+    schedule:
+      interval: "daily"
+    groups:
+      gomod-all:
+        patterns:
+          - "*" # Group all Go module updates
+
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/" # Location of workflows
+    schedule:
+      interval: "weekly" # Actions usually change less frequently than Go modules
+    groups:
+      github-actions-all:
+        patterns:
+          - "*" # Group all GitHub Actions updates
+
+  # **NEW:** Maintain dependencies for npm (for commitlint dev dependencies)
+  - package-ecosystem: "npm"
+    directory: "/" # Location of package.json
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-dev-deps:
+        patterns:
+          - "*" # Group all npm dev dependencies
+# --- END OF REVISED FILE .github/dependabot.yml ---

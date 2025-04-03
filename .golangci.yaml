@@ -1,0 +1,119 @@
+# --- START OF REVISED FILE .golangci.yaml ---
+# Configuration for golangci-lint Linter Runner
+# Ref: techstack.md#15, cicd.md#7.3
+# Tested primarily against golangci-lint v1.59.1 (ensure CI uses compatible version)
+
+# Config file format version. Required for some newer validation/features.
+version: "2" # String "2" to satisfy stricter schema validation
+
+run:
+  # timeout for analysis, e.g. 3m, defaults to 1m
+  timeout: 5m
+  # exit code when issues were found, default is 1
+  issues-exit-code: 1
+  # include test files or not, default is true
+  tests: true
+  # which dirs to skip: issues from them won't be reported;
+  # can use regexp here: generated_.*, regexp is applied to file path relative to project root
+  # NOTE: skip-dirs is correctly placed under 'run' according to golangci-lint docs.
+  skip-dirs:
+    - vendor/
+    - test/fixtures/ # Usually contains intentionally varied code
+    - internal/testutil # Mocks might violate some rules intentionally
+
+linters-settings:
+  errcheck:
+    # report about not checking errors in type assertions: `a := b.(MyStruct)`;
+    # default is false: such cases aren't reported by default.
+    check-type-assertions: true
+    # report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`;
+    # default is false: such cases aren't reported by default.
+    check-blank: true
+  govet:
+    # report about shadowed variables
+    check-shadowing: true
+    # settings per analyzer
+    settings:
+      printf: # analyzer name, run `go tool vet help` to see all analyzers
+        funcs: # run `go tool vet help printf` to see available settings for `printf` analyzer
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+  gofmt:
+    # simplify code: gofmt simplify equals to `gofmt -s`
+    simplify: true
+  goimports:
+    # put imports beginning with prefix after 3rd-party packages;
+    # only support one prefix
+    local-prefixes: github.com/stackvity/stack-converter
+  gosec:
+    # specify severity exclusion levels, Available levels: low, medium, high
+    exclude-severity:
+      - low
+    # specify confidence exclusion levels, Available levels: low, medium, high
+    exclude-confidence:
+      - low
+    # which rules to exclude
+    exclude-rules:
+      # Example: Allow G304 (Filepath provided to functions like os.Open should be vetted)
+      # only if absolutely necessary and reviewed. Default: Keep it enabled.
+      # - G304
+      # Example: G108: Profiling endpoint is automatically exposed on /debug/pprof (False positive if not using net/http/pprof)
+      - G108
+  misspell:
+    # Correct commonly misspelled words in source files.
+    locale: US
+  nolintlint:
+    # Ensure nolint directives are used effectively.
+    allow-unused: false # report unused nolint directives
+    # allow-leading-space: false # require machine-readable nolint directives (i.e. //nolint:revive)
+    require-explanation: false # don't require an explanation for nolint directives
+    require-specific: true # require nolint directives to be specific about which linter is being silenced
+
+linters:
+  # please, do not use `enable-all`: it's deprecated and will be removed soon.
+  # inverted configuration with `enable-all` and `disable` is not scalable during updates of golangci-lint
+  disable-all: true
+  enable:
+    # ----- Core / Recommended -----
+    - errcheck # Check for unchecked errors
+    - gofmt # Check formatting
+    - goimports # Check imports formatting and organization
+    - gosimple # Check for code simplifications
+    - govet # Report suspicious constructs
+    - ineffassign # Detect unused assignments
+    - staticcheck # Comprehensive static analysis
+    - typecheck # Ensure code type-checks
+    - unused # Check for unused constants, functions, types, and variables
+    # ----- Style -----
+    - bodyclose # Check for unclosed HTTP response bodies
+    - durationcheck # Check for inefficient duration comparisons
+    - exportloopref # Check for pointers to loop variables captured by closures
+    - misspell # Check for common misspellings
+    - nolintlint # Check nolint directives
+    # ----- Security -----
+    - gosec # Go security checks
+    # ----- Complexity -----
+    - cyclop # Check function cyclomatic complexity (consider setting limit in settings)
+    # ----- Others -----
+    # - deadcode  # Deprecated, covered by `unused`
+    # - structcheck # Deprecated, covered by `unused`
+    # - varcheck    # Deprecated, covered by `unused`
+
+issues:
+  # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
+  max-issues-per-linter: 0
+  # Maximum count of issues with the same text. Set to 0 to disable. Default is 3.
+  max-same-issues: 0
+  # Exclude rules, can be patterns
+  exclude-rules:
+    # Exclude some gosec rules if necessary after review
+    # - path: _test\.go
+    #   linters:
+    #     - gosec # e.g., ignore G304 in test files if using test fixtures intentionally
+  # Do not exclude path prefixes (prefer `skip-dirs` at the run level)
+  # exclude-dirs: []
+# golangci.com configuration
+# https://golangci-lint.run/usage/configuration/
+# --- END OF REVISED FILE .golangci.yaml ---
