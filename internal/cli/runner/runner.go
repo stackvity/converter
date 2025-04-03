@@ -15,7 +15,8 @@ import (
 	"sync"
 	"syscall" // Import syscall for checking specific errors like EPIPE
 
-	"github.com/stackvity/stack-converter/pkg/converter"
+	// FIX: Remove direct import of parent converter package
+	// "github.com/stackvity/stack-converter/pkg/converter"
 	"github.com/stackvity/stack-converter/pkg/converter/plugin" // Use constants/types from here
 )
 
@@ -26,13 +27,14 @@ const (
 	maxPluginReadBytes = 10 * 1024 * 1024 // 10 MiB limit for stdout/stderr capture
 )
 
-// execPluginRunner implements the converter.PluginRunner interface using os/exec.
+// execPluginRunner implements the plugin.PluginRunner interface using os/exec.
 type execPluginRunner struct {
 	logger *slog.Logger
 }
 
 // NewExecPluginRunner creates a new plugin runner that executes plugins as external processes.
-func NewExecPluginRunner(loggerHandler slog.Handler) converter.PluginRunner { // minimal comment
+// FIX: Change return type from converter.PluginRunner to plugin.PluginRunner
+func NewExecPluginRunner(loggerHandler slog.Handler) plugin.PluginRunner { // minimal comment
 	if loggerHandler == nil {
 		// Discard logs if no handler provided, though typically the CLI provides one.
 		loggerHandler = slog.NewTextHandler(io.Discard, &slog.HandlerOptions{})
@@ -42,7 +44,8 @@ func NewExecPluginRunner(loggerHandler slog.Handler) converter.PluginRunner { //
 }
 
 // Run executes the specified plugin process according to the defined protocol.
-func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg converter.PluginConfig, input converter.PluginInput) (converter.PluginOutput, error) { // minimal comment
+// FIX: Use plugin.* types for parameters and return value
+func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg plugin.PluginConfig, input plugin.PluginInput) (plugin.PluginOutput, error) { // minimal comment
 	logArgs := []any{
 		slog.String("plugin", pluginCfg.Name),
 		slog.String("stage", stage),
@@ -53,8 +56,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 	if len(pluginCfg.Command) == 0 {
 		err := fmt.Errorf("plugin command cannot be empty")
 		r.logger.Error("Plugin configuration error", append(logArgs, slog.Any("error", err))...)
-		// Use Errorf to wrap the base plugin execution error type
-		return converter.PluginOutput{}, plugin.Errorf("plugin configuration error for '%s': %w", pluginCfg.Name, err)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.Errorf("plugin configuration error for '%s': %w", pluginCfg.Name, err)
 	}
 
 	// Prepare Input
@@ -63,7 +66,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 	if marshalErr != nil {
 		r.logger.Error("Failed to marshal plugin input JSON", append(logArgs, slog.Any("error", marshalErr))...)
 		// Wrap specific error type ErrPluginBadOutput
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "failed to marshal input for plugin '%s': %v", pluginCfg.Name, marshalErr)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "failed to marshal input for plugin '%s': %v", pluginCfg.Name, marshalErr)
 	}
 
 	// Setup Command Execution
@@ -74,23 +78,27 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
 		r.logger.Error("Failed to create stdin pipe for plugin", append(logArgs, slog.Any("error", err))...)
-		return converter.PluginOutput{}, plugin.Errorf("failed to create stdin pipe for plugin '%s': %w", pluginCfg.Name, err)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.Errorf("failed to create stdin pipe for plugin '%s': %w", pluginCfg.Name, err)
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		r.logger.Error("Failed to create stdout pipe for plugin", append(logArgs, slog.Any("error", err))...)
-		return converter.PluginOutput{}, plugin.Errorf("failed to create stdout pipe for plugin '%s': %w", pluginCfg.Name, err)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.Errorf("failed to create stdout pipe for plugin '%s': %w", pluginCfg.Name, err)
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		r.logger.Error("Failed to create stderr pipe for plugin", append(logArgs, slog.Any("error", err))...)
-		return converter.PluginOutput{}, plugin.Errorf("failed to create stderr pipe for plugin '%s': %w", pluginCfg.Name, err)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.Errorf("failed to create stderr pipe for plugin '%s': %w", pluginCfg.Name, err)
 	}
 
 	// Start Plugin Process
 	if startErr := cmd.Start(); startErr != nil {
 		r.logger.Error("Failed to start plugin process", append(logArgs, slog.String("command", strings.Join(pluginCfg.Command, " ")), slog.Any("error", startErr))...)
-		return converter.PluginOutput{}, plugin.Errorf("failed to start plugin '%s' command '%s': %w", pluginCfg.Name, pluginCfg.Command[0], startErr)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.Errorf("failed to start plugin '%s' command '%s': %w", pluginCfg.Name, pluginCfg.Command[0], startErr)
 	}
 	r.logger.Debug("Plugin process started", logArgs...)
 
@@ -173,7 +181,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 			logArgs = append(logArgs, slog.String("plugin_stderr", stderrString))
 		}
 		r.logger.Error("Plugin execution cancelled or timed out", append(logArgs, slog.Any("error", ctx.Err()))...)
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginTimeout, "plugin '%s' execution cancelled or timed out: %v", pluginCfg.Name, ctx.Err())
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginTimeout, "plugin '%s' execution cancelled or timed out: %v", pluginCfg.Name, ctx.Err())
 	}
 
 	// 2. Check for errors writing to plugin's stdin (excluding pipe errors)
@@ -183,7 +192,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 		}
 		r.logger.Error("Plugin failed due to stdin write error", append(logArgs, slog.Any("error", writeErr))...)
 		// A stdin write error likely prevents the plugin from working correctly.
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginExecution, "failed writing input to plugin '%s': %v", pluginCfg.Name, writeErr)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginExecution, "failed writing input to plugin '%s': %v", pluginCfg.Name, writeErr)
 	}
 
 	// 3. Check for process exit errors (Non-zero exit code or other Wait error)
@@ -199,7 +209,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 		}
 		r.logger.Error("Plugin execution failed (non-zero exit or other wait error)", logArgs...)
 		// Use specific error for non-zero exit.
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginNonZeroExit, "plugin '%s' execution failed with exit code %d: %v", pluginCfg.Name, exitCode, waitErr)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginNonZeroExit, "plugin '%s' execution failed with exit code %d: %v", pluginCfg.Name, exitCode, waitErr)
 	}
 
 	// ---- Process exited successfully (code 0) ----
@@ -211,7 +222,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 		}
 		r.logger.Error("Plugin execution succeeded but failed to read stdout", append(logArgs, slog.Any("error", readStdoutErr))...)
 		// Failure to read stdout means we can't get the result.
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "error reading stdout from plugin '%s': %v", pluginCfg.Name, readStdoutErr)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "error reading stdout from plugin '%s': %v", pluginCfg.Name, readStdoutErr)
 	}
 
 	// 5. Log stderr read errors as warnings if they occurred, but don't fail the run.
@@ -225,11 +237,13 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 			logArgs = append(logArgs, slog.String("plugin_stderr", stderrString))
 		}
 		r.logger.Error("Plugin returned empty output", logArgs...)
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "plugin '%s' returned empty stdout", pluginCfg.Name)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "plugin '%s' returned empty stdout", pluginCfg.Name)
 	}
 
 	// 7. Attempt to unmarshal the JSON output
-	var output converter.PluginOutput
+	// FIX: Unmarshal into plugin.PluginOutput type
+	var output plugin.PluginOutput
 	if unmarshalErr := json.Unmarshal(stdoutData, &output); unmarshalErr != nil {
 		logStdout := string(stdoutData)
 		if len(logStdout) > maxLogOutputBytes { // Log truncated stdout on error
@@ -240,7 +254,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 			logArgs = append(logArgs, slog.String("plugin_stderr", stderrString))
 		}
 		r.logger.Error("Failed to unmarshal plugin output JSON", logArgs...)
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "failed to unmarshal JSON output from plugin '%s': %v", pluginCfg.Name, unmarshalErr)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "failed to unmarshal JSON output from plugin '%s': %v", pluginCfg.Name, unmarshalErr)
 	}
 
 	// 8. Check schema version compatibility
@@ -251,8 +266,9 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 			logArgs = append(logArgs, slog.String("plugin_stderr", stderrString))
 		}
 		r.logger.Error("Plugin schema version mismatch", logArgs...)
-		// FIX: Use constant format string and pass schemaErr as argument
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "schema version mismatch for plugin '%s': %v", pluginCfg.Name, schemaErr)
+		// FIX: Return plugin.PluginOutput zero value
+		// FIX: Pass schemaErr as argument, not format string
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "schema version mismatch for plugin '%s': %v", pluginCfg.Name, schemaErr)
 	}
 
 	// 9. Check if the plugin reported a functional error in its JSON output
@@ -264,7 +280,8 @@ func (r *execPluginRunner) Run(ctx context.Context, stage string, pluginCfg conv
 		}
 		r.logger.Error("Plugin reported functional error", logArgs...)
 		// Return ErrPluginBadOutput, wrapping the plugin's specific error message.
-		return converter.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "plugin '%s' reported error: %v", pluginCfg.Name, pluginReportedErr)
+		// FIX: Return plugin.PluginOutput zero value
+		return plugin.PluginOutput{}, plugin.WrapPluginError(plugin.ErrPluginBadOutput, "plugin '%s' reported error: %v", pluginCfg.Name, pluginReportedErr)
 	}
 
 	// --- Success Case ---

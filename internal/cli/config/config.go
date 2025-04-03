@@ -16,8 +16,16 @@ import (
 	// Needed indirectly via viper
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	// FIX: Removed internal imports - default injection moved out
+	// "github.com/stackvity/stack-converter/internal/cli/git"    // Import CLI git impl
+	// "github.com/stackvity/stack-converter/internal/cli/runner" // Import CLI plugin runner impl
 	"github.com/stackvity/stack-converter/pkg/converter"
-	"github.com/stackvity/stack-converter/pkg/converter/git"
+	"github.com/stackvity/stack-converter/pkg/converter/analysis" // Import subpackages for defaults
+	"github.com/stackvity/stack-converter/pkg/converter/encoding"
+	libgit "github.com/stackvity/stack-converter/pkg/converter/git" // Import library git for interface
+	"github.com/stackvity/stack-converter/pkg/converter/language"   // Import library plugin for interface
+	libtemplate "github.com/stackvity/stack-converter/pkg/converter/template"
 
 	// Use alias for the library's template helper functions to avoid conflict
 	tmplhelper "github.com/stackvity/stack-converter/pkg/converter/template"
@@ -32,8 +40,10 @@ const (
 
 // LoadAndValidate loads configuration from all sources (defaults, file, profile, env, flags),
 // validates the merged configuration, derives necessary values (e.g., absolute paths),
-// loads templates, sets up the logger, and returns the populated Options struct or an error.
-func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.FlagSet) (converter.Options, *slog.Logger, error) {
+// loads templates, sets up the logger, **and optionally injects default dependencies if needed**.
+// Returns the populated Options struct or an error.
+// FIX: Added appVersion parameter
+func LoadAndValidate(cfgFile, profileName, appVersion string, verbose bool, flags *pflag.FlagSet) (converter.Options, *slog.Logger, error) {
 	var opts converter.Options
 	v := viper.New()
 
@@ -124,7 +134,7 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 		"clear-cache", "git-metadata", "git-diff-only", "git-since",
 		"output-format", "template", "large-file-threshold",
 		"large-file-mode", "large-file-truncate-cfg", "binary-mode",
-		"watch", "extract-comments",
+		"watch", "extract-comments", "watch-debounce", // Add watch-debounce if bound
 		// Add other flags defined in root.go init() here
 		// Ensure these keys match the flag names used in rootCmd.Flags() / PersistentFlags()
 	}
@@ -146,12 +156,16 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 	}
 
 	// Rename viper keys if they differ from flag names (or struct field names if mapstructure tags are different)
-	// Example: If flag is --template but struct field is TemplatePath and config key is templateFile
-	v.RegisterAlias("templateFile", "template") // Alias --template flag to templateFile config key
+	v.RegisterAlias("templateFile", "template")         // Alias --template flag to templateFile config key
+	v.RegisterAlias("watch.debounce", "watch-debounce") // Alias --watch-debounce flag to watch.debounce config key
 
 	// --- REMOVED Decode Hook Application ---
 
 	// --- Unmarshal Final Configuration ---
+	// *** Assign AppVersion before Unmarshal ***
+	// FIX: Use the appVersion passed into the function
+	opts.AppVersion = appVersion
+
 	if err := v.Unmarshal(&opts); err != nil { // Call without hooks
 		tempLogger.Error("Error unmarshalling configuration", slog.Any("error", err))
 		return opts, tempLogger, fmt.Errorf("error unmarshalling configuration: %w", err)
@@ -242,7 +256,7 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 			return opts, logger, err
 		}
 
-		// *** FIX: Load template using standard library functions ***
+		// *** Load template using standard library functions ***
 		templateName := filepath.Base(opts.TemplatePath)
 		// Read the file content
 		contentBytes, readErr := os.ReadFile(opts.TemplatePath)
@@ -283,9 +297,6 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 	debounceDuration, err := time.ParseDuration(opts.WatchConfig.Debounce)
 	if err != nil {
 		// Check if a flag explicitly set an invalid debounce string
-		// TODO: Check if the flag name for watch.debounce needs specific binding or if viper handles nested keys from flags
-		// Assuming viper maps --watch.debounce or similar; if not, flag parsing needs adjustment or direct access.
-		// If "watch-debounce" flag exists directly:
 		if flags.Changed("watch-debounce") { // Use direct flag name if defined
 			err = fmt.Errorf("%w: invalid watch debounce duration '%s' specified via flag or config: %w", converter.ErrConfigValidation, opts.WatchConfig.Debounce, err)
 			logger.Error(err.Error(), slog.String("key", "watch.debounce"), slog.String("value", opts.WatchConfig.Debounce))
@@ -294,7 +305,6 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 		}
 		// Otherwise, log warning and use default if parsing string from config/default fails
 		defaultDuration := converter.DefaultWatchDebounceDuration
-		// Use the final logger instance here if possible, else tempLogger
 		logger.Warn("Could not parse watch.debounce string, using default",
 			slog.String("value", opts.WatchConfig.Debounce),
 			slog.Duration("default", defaultDuration),
@@ -311,9 +321,10 @@ func LoadAndValidate(cfgFile, profileName string, verbose bool, flags *pflag.Fla
 	opts.WatchDebounce = debounceDuration
 	// --------------------------------------------------------
 
-	// --- Final Validation and Derivations ---
+	// --- Final Validation and Derivations (Includes Default Dependency Injection) ---
 	// Now call validateAndDeriveOptions AFTER explicitly setting InputPath/OutputPath from flags
 	// AND manually parsing WatchDebounce.
+	// FIX: Pass the logger instance to validateAndDeriveOptions
 	if err := validateAndDeriveOptions(&opts, logger, flags); err != nil {
 		// Specific error logged within validation function
 		// Ensure the returned error includes context that it's a validation issue
@@ -387,8 +398,9 @@ func isValidEnumValue[T ~string](value T, allowedValues []T) bool {
 	return slices.Contains(allowedValues, value)
 }
 
-// validateAndDeriveOptions performs semantic validation on the populated Options struct
-// and calculates derived fields (e.g., absolute paths, byte thresholds).
+// validateAndDeriveOptions performs semantic validation on the populated Options struct,
+// **injects default non-interface dependencies if nil**, and calculates derived fields.
+// **Dependency injection for interfaces (GitClient, PluginRunner, CacheManager etc.) is now handled externally.**
 // It wraps errors with converter.ErrConfigValidation.
 func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flags *pflag.FlagSet) error {
 	// === Path Validations ===
@@ -437,13 +449,13 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 	opts.OutputPath = absOutput
 	// Attempt to create output directory to check writability early
 	if mkdirErr := os.MkdirAll(opts.OutputPath, 0755); mkdirErr != nil {
-		err := fmt.Errorf("%w: cannot create/access output directory '%s': %w", converter.ErrConfigValidation, opts.OutputPath, mkdirErr)
+		err := fmt.Errorf("%w: cannot create or access output directory '%s': %w", converter.ErrConfigValidation, opts.OutputPath, mkdirErr)
 		logger.Error(err.Error(), slog.String("key", "OutputPath"), slog.String("value", opts.OutputPath))
 		return err
 	}
 	logger.Debug("Resolved and verified output path", slog.String("path", opts.OutputPath))
 
-	// --- Enum String Validations ---
+	// === Enum String Validations ===
 	allowedOnError := []converter.OnErrorMode{converter.OnErrorContinue, converter.OnErrorStop}
 	if !isValidEnumValue(opts.OnErrorMode, allowedOnError) {
 		err := fmt.Errorf("%w: invalid value '%s' for key 'onError' (flag --onError). Allowed: %v", converter.ErrConfigValidation, opts.OnErrorMode, allowedOnError)
@@ -477,7 +489,7 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 		}
 	}
 
-	// --- Numeric Range Validations ---
+	// === Numeric Range Validations ===
 	if opts.Concurrency < 0 {
 		err := fmt.Errorf("%w: invalid value '%d' for key 'concurrency' (flag --concurrency). Must be >= 0", converter.ErrConfigValidation, opts.Concurrency)
 		logger.Error(err.Error(), slog.String("key", "concurrency"), slog.Int("value", opts.Concurrency))
@@ -494,7 +506,68 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 		return err
 	}
 
-	// --- Derive options ---
+	// === Inject Default Non-Interface Dependencies (if nil) ===
+	// FIX: Moved Interface injection out of this function.
+	// Ensure logger and hooks are non-nil (should be handled by caller LoadAndValidate)
+	if opts.Logger == nil {
+		return fmt.Errorf("internal setup error: logger handler is nil in validateAndDeriveOptions")
+	}
+	if opts.EventHooks == nil {
+		return fmt.Errorf("internal setup error: EventHooks is nil in validateAndDeriveOptions")
+	}
+
+	// --- CacheManager (Provide NoOp default if nil and enabled, but actual creation moved out) ---
+	if opts.CacheManager == nil {
+		if opts.CacheEnabled {
+			logger.Warn("Cache enabled, but no CacheManager implementation provided. Defaulting to NoOpCacheManager.")
+			opts.CacheManager = &converter.NoOpCacheManager{}
+		} else {
+			opts.CacheManager = &converter.NoOpCacheManager{} // Use NoOp if cache disabled
+		}
+	}
+
+	// --- Inject other defaults IF they are still nil after LoadAndValidate populated opts ---
+	// These are concrete types or interfaces where a default non-interface implementation exists.
+	if opts.LanguageDetector == nil {
+		opts.LanguageDetector = language.NewGoEnryDetector(opts.LanguageDetectionConfidenceThreshold, opts.LanguageMappingsOverride)
+		logger.Debug("LanguageDetector not provided, using default (GoEnryDetector).")
+	}
+	if opts.EncodingHandler == nil {
+		opts.EncodingHandler = encoding.NewGoCharsetEncodingHandler(opts.DefaultEncoding)
+		logger.Debug("EncodingHandler not provided, using default (GoCharsetEncodingHandler).")
+	}
+	if opts.AnalysisEngine == nil {
+		opts.AnalysisEngine = analysis.NewDefaultAnalysisEngine(opts.Logger)
+		logger.Debug("AnalysisEngine not provided, using default (DefaultAnalysisEngine).")
+	}
+	if opts.TemplateExecutor == nil {
+		opts.TemplateExecutor = libtemplate.NewGoTemplateExecutor() // Use correct package alias
+		logger.Debug("TemplateExecutor not provided, using default (GoTemplateExecutor).")
+	}
+	// Note: GitClient and PluginRunner defaults are NOT handled here anymore.
+	// Caller (CLI layer) is responsible for providing implementations if needed.
+	// Validation that they ARE provided if needed occurs below.
+
+	// === Final checks requiring potentially defaulted dependencies ===
+	if opts.GitDiffMode != converter.GitDiffModeNone && opts.GitClient == nil {
+		err = fmt.Errorf("%w: Git diff requested (--%s) but no GitClient implementation was provided", converter.ErrConfigValidation, opts.GitDiffMode)
+		logger.Error(err.Error())
+		return err
+	}
+	anyPluginsEnabled := false
+	for _, p := range opts.PluginConfigs {
+		if p.Enabled {
+			anyPluginsEnabled = true
+			break
+		}
+	}
+	if anyPluginsEnabled && opts.PluginRunner == nil {
+		err = fmt.Errorf("%w: Plugins are enabled but no PluginRunner implementation was provided", converter.ErrConfigValidation)
+		logger.Error(err.Error())
+		return err
+	}
+
+	// === Derive other options ===
 	if opts.Concurrency == 0 {
 		opts.Concurrency = runtime.NumCPU()
 		logger.Debug("Concurrency not set, defaulting to number of CPUs", slog.Int("concurrency", opts.Concurrency))
@@ -502,17 +575,10 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 
 	opts.LargeFileThreshold = opts.LargeFileThresholdMB * 1024 * 1024
 
-	if opts.CacheEnabled {
-		opts.CacheFilePath = filepath.Join(opts.OutputPath, converter.CacheFileName)
-		logger.Debug("Cache enabled", slog.String("path", opts.CacheFilePath))
-	} else {
-		opts.CacheFilePath = ""
-		logger.Debug("Cache disabled")
-	}
-
-	// WatchDebounce is handled *after* unmarshal now
+	// WatchDebounce is handled *after* unmarshal now in LoadAndValidate
 
 	// Derive GitDiffMode from flags (using pflag Changed method for certainty)
+	// This logic remains as it derives state from flags, not dependency injection
 	opts.GitDiffMode = converter.GitDiffModeNone // Default
 	if gitDiffOnly, _ := flags.GetBool("git-diff-only"); gitDiffOnly {
 		if flags.Changed("git-since") {
@@ -533,29 +599,31 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 	}
 	logger.Debug("Git diff mode derived", slog.String("mode", string(opts.GitDiffMode)), slog.String("sinceRef", opts.GitConfig.SinceRef))
 
-	// --- Derive GitChangedFiles (moved from processor, now done once upfront) ---
-	// This requires the GitClient to be instantiated and potentially injected,
-	// or initialized here if a default is acceptable.
-	// If GitClient is nil and diff mode is active, we MUST return an error.
+	// --- Derive GitChangedFiles (Requires GitClient) ---
+	// This logic remains, but relies on GitClient having been injected previously.
 	if opts.GitDiffMode != converter.GitDiffModeNone {
+		// GitClient MUST exist at this point if diff mode is active (checked above).
 		if opts.GitClient == nil {
-			// Try initializing default GitClient if none provided
-			logger.Debug("Git diff requested but no GitClient provided, initializing default (ExecGitClient)...")
-			defaultGitClient := git.NewExecGitClient(logger.Handler()) // Example default
-			// Check if git command is actually available
-			if !defaultGitClient.IsGitAvailable() {
-				err = fmt.Errorf("%w: Git diff requested (--%s) but git command not found in PATH and no GitClient provided", converter.ErrConfigValidation, opts.GitDiffMode)
-				logger.Error(err.Error())
-				return err
-			}
-			opts.GitClient = defaultGitClient
+			// This indicates an internal logic error if the check above passed.
+			return fmt.Errorf("internal error: GitClient is nil despite diff mode '%s' being active", opts.GitDiffMode)
 		}
-		// Now opts.GitClient should be non-nil
 		logger.Debug("Fetching changed files from Git...", slog.String("mode", string(opts.GitDiffMode)), slog.String("ref", opts.GitConfig.SinceRef))
-		changedFilesList, gitErr := opts.GitClient.GetChangedFiles(opts.InputPath, string(opts.GitDiffMode), opts.GitConfig.SinceRef)
+		// Cast to the interface type defined in pkg/converter/git
+		var libGitClient libgit.GitClient
+		var ok bool
+		if libGitClient, ok = opts.GitClient.(libgit.GitClient); !ok {
+			// This indicates an internal type mismatch - should not happen if constructed correctly
+			err = fmt.Errorf("internal error: opts.GitClient is not of expected type libgit.GitClient")
+			logger.Error(err.Error())
+			return err
+		}
+
+		// Use the interface method
+		changedFilesList, gitErr := libGitClient.GetChangedFiles(opts.InputPath, string(opts.GitDiffMode), opts.GitConfig.SinceRef)
 		if gitErr != nil {
 			// Treat Git operational error as fatal during config validation if diffing was requested
-			err = fmt.Errorf("%w: failed to get changed files for diff mode '%s': %w", converter.ErrGitOperation, opts.GitDiffMode, gitErr)
+			// FIX: Wrap the correct base error type from libgit
+			err = fmt.Errorf("%w: failed to get changed files for diff mode '%s': %w", libgit.ErrGitOperation, opts.GitDiffMode, gitErr)
 			logger.Error("Git operation failed", slog.String("error", err.Error()))
 			return err
 		}
@@ -568,15 +636,13 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 		logger.Debug("Fetched Git changed files", slog.Int("count", len(opts.GitChangedFiles)))
 
 		// Add an explicit check for '--git-since' requiring *some* changes.
-		// Running a diff that results in zero changes likely indicates user error (e.g., same ref, typo).
-		// This check is primarily for '--git-since'. '--git-diff-only' finding zero changes is common.
 		if opts.GitDiffMode == converter.GitDiffModeSince && len(opts.GitChangedFiles) == 0 {
 			logger.Warn("No file changes detected between HEAD and the specified --git-since reference.", slog.String("ref", opts.GitConfig.SinceRef))
-			// Continue processing, but warn the user.
 		}
 	}
 
 	// Handle TUI enable/disable logic considering verbose flag
+	// This logic remains as it derives state from flags/opts
 	if opts.Verbose {
 		if opts.TuiEnabled && !flags.Changed("no-tui") { // Only log if TUI was previously enabled and not explicitly disabled by flag
 			logger.Debug("Verbose mode enabled, TUI explicitly disabled")
@@ -587,12 +653,6 @@ func validateAndDeriveOptions(opts *converter.Options, logger *slog.Logger, flag
 			logger.Debug("TUI explicitly disabled via --no-tui flag")
 			opts.TuiEnabled = false
 		}
-	}
-
-	// Ensure EventHooks is set (should be done by caller, but default defensively)
-	if opts.EventHooks == nil {
-		opts.EventHooks = &converter.NoOpHooks{}
-		logger.Debug("No event hooks provided by caller, defaulting to no-op hooks.")
 	}
 
 	// Log final important derived/validated settings

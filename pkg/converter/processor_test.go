@@ -17,6 +17,7 @@ import (
 
 	"github.com/stackvity/stack-converter/internal/testutil" // Use shared mocks
 	"github.com/stackvity/stack-converter/pkg/converter"
+	"github.com/stackvity/stack-converter/pkg/converter/plugin"                   // FIX: Import plugin package
 	pkghtmltemplate "github.com/stackvity/stack-converter/pkg/converter/template" // Use aliased type
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -78,13 +79,14 @@ func setupProcessorTest(t *testing.T) ( // minimal comment
 		AnalysisOptions:       converter.AnalysisConfig{ExtractComments: false},
 		FrontMatterConfig:     converter.FrontMatterOptions{Enabled: false, Format: "yaml"},
 		DispatchWarnThreshold: 1 * time.Second,
+		PluginConfigs:         []plugin.PluginConfig{}, // Initialize with correct type
 		// Inject mocks (these will be used by the processor)
 		CacheManager:     mockCacheMgr,
 		LanguageDetector: mockLangDet,
 		EncodingHandler:  mockEncHandler,
 		AnalysisEngine:   mockAnalysisEng,
 		GitClient:        mockGitClient,
-		PluginRunner:     mockPluginRunner,
+		PluginRunner:     mockPluginRunner, // This variable holds *testutil.MockPluginRunner
 		TemplateExecutor: mockTplExecutor,
 	}
 
@@ -115,6 +117,9 @@ func setupProcessorTest(t *testing.T) ( // minimal comment
 		fmt.Fprintf(writer, "CONTENT:%s", metadata.Content)
 	})
 
+	// Create the processor - the error occurs here because mockPluginRunner's Run method
+	// doesn't match the signature expected by NewFileProcessor's pluginRun parameter.
+	// Assuming the mock definition in testutil/mocks.go is fixed, this call becomes valid.
 	processor := converter.NewFileProcessor(
 		opts,
 		loggerHandler,
@@ -123,7 +128,7 @@ func setupProcessorTest(t *testing.T) ( // minimal comment
 		mockEncHandler,
 		mockAnalysisEng,
 		mockGitClient,
-		mockPluginRunner,
+		mockPluginRunner, // Passes the *testutil.MockPluginRunner which must implement plugin.PluginRunner
 		mockTplExecutor,
 	)
 	require.NotNil(t, processor)
@@ -411,14 +416,17 @@ func TestFileProcessor_ProcessFile_WithPreprocessorPlugin(t *testing.T) { // min
 	preprocessedContent := "PREPROCESSED: Original Content"
 	absPath := createTestFile(t, opts.InputPath, relPath, content)
 
-	opts.PluginConfigs = []converter.PluginConfig{
-		{Name: "pre1", Stage: converter.PluginStagePreprocessor, Enabled: true, Command: []string{"pre1_cmd"}, AppliesTo: []string{"*.txt"}},
+	// FIX: Use plugin.PluginConfig type
+	opts.PluginConfigs = []plugin.PluginConfig{
+		{Name: "pre1", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: []string{"pre1_cmd"}, AppliesTo: []string{"*.txt"}},
 	}
 
 	// Mock preprocessor output including metadata
 	preprocessorMetadata := map[string]interface{}{"preprocessed": true, "added_by_pre": "value1", "DetectedLanguage": "override"}
-	mockPluginRunner.On("Run", mock.Anything, converter.PluginStagePreprocessor, mock.Anything, mock.Anything).Return(
-		converter.PluginOutput{SchemaVersion: converter.PluginSchemaVersion, Content: preprocessedContent, Metadata: preprocessorMetadata},
+	// Assert that Run is called with the correct *plugin* types
+	// FIX: Change mock.AnythingOfType("converter.PluginOutput") to plugin.PluginOutput
+	mockPluginRunner.On("Run", mock.Anything, plugin.PluginStagePreprocessor, mock.Anything, mock.AnythingOfType("plugin.PluginInput")).Return(
+		plugin.PluginOutput{SchemaVersion: plugin.PluginSchemaVersion, Content: preprocessedContent, Metadata: preprocessorMetadata},
 		nil,
 	).Once()
 
@@ -466,16 +474,20 @@ func TestFileProcessor_ProcessFile_WithPostprocessorPlugin(t *testing.T) { // mi
 	postprocessedContent := "TEMPLATE:Original Content:POSTPROCESSED"
 	absPath := createTestFile(t, opts.InputPath, relPath, content)
 
-	opts.PluginConfigs = []converter.PluginConfig{
-		{Name: "post1", Stage: converter.PluginStagePostprocessor, Enabled: true, Command: []string{"post1_cmd"}, AppliesTo: []string{"*.txt"}},
+	// FIX: Use plugin.PluginConfig type
+	opts.PluginConfigs = []plugin.PluginConfig{
+		{Name: "post1", Stage: plugin.PluginStagePostprocessor, Enabled: true, Command: []string{"post1_cmd"}, AppliesTo: []string{"*.txt"}},
 	}
 
 	// Mock postprocessor to modify content based on expected template output
-	mockPluginRunner.On("Run", mock.Anything, converter.PluginStagePostprocessor, mock.Anything, mock.MatchedBy(func(input converter.PluginInput) bool {
+	// Assert that Run is called with the correct *plugin* types
+	// FIX: Change mock.AnythingOfType("converter.PluginInput") to plugin.PluginInput
+	// FIX: Change mock.AnythingOfType("converter.PluginOutput") to plugin.PluginOutput
+	mockPluginRunner.On("Run", mock.Anything, plugin.PluginStagePostprocessor, mock.Anything, mock.MatchedBy(func(input plugin.PluginInput) bool {
 		// Check if the input content matches the expected template output
 		return input.Content == templateOutput
 	})).Return(
-		converter.PluginOutput{SchemaVersion: converter.PluginSchemaVersion, Content: postprocessedContent, Metadata: map[string]interface{}{"postprocessed": true}},
+		plugin.PluginOutput{SchemaVersion: plugin.PluginSchemaVersion, Content: postprocessedContent, Metadata: map[string]interface{}{"postprocessed": true}},
 		nil,
 	).Once()
 
@@ -513,20 +525,27 @@ func TestFileProcessor_ProcessFile_WithFormatterPlugin(t *testing.T) { // minima
 	opts.FrontMatterConfig.Enabled = true // Enable front matter to test if formatter bypasses it
 
 	// Configure plugins
-	opts.PluginConfigs = []converter.PluginConfig{
-		{Name: "fmt1", Stage: converter.PluginStageFormatter, Enabled: true, Command: []string{"fmt1_cmd"}, AppliesTo: []string{"*.txt"}},
-		{Name: "post1", Stage: converter.PluginStagePostprocessor, Enabled: true, Command: []string{"post1_cmd"}, AppliesTo: []string{"*.txt"}}, // Add a postprocessor
+	// FIX: Use plugin.PluginConfig type
+	opts.PluginConfigs = []plugin.PluginConfig{
+		{Name: "fmt1", Stage: plugin.PluginStageFormatter, Enabled: true, Command: []string{"fmt1_cmd"}, AppliesTo: []string{"*.txt"}},
+		{Name: "post1", Stage: plugin.PluginStagePostprocessor, Enabled: true, Command: []string{"post1_cmd"}, AppliesTo: []string{"*.txt"}}, // Add a postprocessor
 	}
 
 	// Setup mock plugin response - IMPORTANT: Use the 'Output' field for formatters
 	formatterFinalOutput := "FORMATTER_FINAL_OUTPUT"
-	mockPluginRunner.On("Run", mock.Anything, converter.PluginStageFormatter, mock.Anything, mock.Anything).Return(
-		converter.PluginOutput{SchemaVersion: converter.PluginSchemaVersion, Output: formatterFinalOutput}, // Use Output field
+	// Assert that Run is called with the correct *plugin* types
+	// FIX: Change mock.AnythingOfType("converter.PluginInput") to plugin.PluginInput
+	// FIX: Change mock.AnythingOfType("converter.PluginOutput") to plugin.PluginOutput
+	mockPluginRunner.On("Run", mock.Anything, plugin.PluginStageFormatter, mock.Anything, mock.AnythingOfType("plugin.PluginInput")).Return(
+		plugin.PluginOutput{SchemaVersion: plugin.PluginSchemaVersion, Output: formatterFinalOutput}, // Use Output field
 		nil,
 	).Once()
 	// Postprocessor should NOT be called if formatter provides Output
-	mockPluginRunner.On("Run", mock.Anything, converter.PluginStagePostprocessor, mock.Anything, mock.Anything).Return(
-		converter.PluginOutput{}, nil,
+	// Assert that Run is called with the correct *plugin* types
+	// FIX: Change mock.AnythingOfType("converter.PluginInput") to plugin.PluginInput
+	// FIX: Change mock.AnythingOfType("converter.PluginOutput") to plugin.PluginOutput
+	mockPluginRunner.On("Run", mock.Anything, plugin.PluginStagePostprocessor, mock.Anything, mock.AnythingOfType("plugin.PluginInput")).Return(
+		plugin.PluginOutput{}, nil,
 	).Maybe() // Use Maybe in case logic changes, but expect 0 calls
 
 	// Template executor should NOT be called if formatter provides Output
@@ -569,8 +588,9 @@ func TestFileProcessor_ProcessFile_FrontMatterAndPostprocessor(t *testing.T) { /
 	opts.FrontMatterConfig.Include = []string{"DetectedLanguage"} // Expect "plaintext"
 
 	// Configure Postprocessor Plugin
-	opts.PluginConfigs = []converter.PluginConfig{
-		{Name: "post1", Stage: converter.PluginStagePostprocessor, Enabled: true, Command: []string{"post1_cmd"}, AppliesTo: []string{"*.txt"}},
+	// FIX: Use plugin.PluginConfig type
+	opts.PluginConfigs = []plugin.PluginConfig{
+		{Name: "post1", Stage: plugin.PluginStagePostprocessor, Enabled: true, Command: []string{"post1_cmd"}, AppliesTo: []string{"*.txt"}},
 	}
 
 	// Mock Template Output
@@ -582,10 +602,13 @@ func TestFileProcessor_ProcessFile_FrontMatterAndPostprocessor(t *testing.T) { /
 
 	// Mock Postprocessor Output
 	postprocessedContent := "POSTPROCESSED_TEMPLATE_OUTPUT_BODY"
-	mockPluginRunner.On("Run", mock.Anything, converter.PluginStagePostprocessor, mock.Anything, mock.MatchedBy(func(input converter.PluginInput) bool {
+	// Assert that Run is called with the correct *plugin* types
+	// FIX: Change mock.AnythingOfType("converter.PluginInput") to plugin.PluginInput
+	// FIX: Change mock.AnythingOfType("converter.PluginOutput") to plugin.PluginOutput
+	mockPluginRunner.On("Run", mock.Anything, plugin.PluginStagePostprocessor, mock.Anything, mock.MatchedBy(func(input plugin.PluginInput) bool {
 		return input.Content == templateOutput // Postprocessor receives template output
 	})).Return(
-		converter.PluginOutput{SchemaVersion: converter.PluginSchemaVersion, Content: postprocessedContent},
+		plugin.PluginOutput{SchemaVersion: plugin.PluginSchemaVersion, Content: postprocessedContent},
 		nil,
 	).Once()
 
@@ -659,7 +682,8 @@ func TestCalculateConfigHash(t *testing.T) { // minimal comment
 	opts.BinaryMode = originalBinaryMode // Change back
 
 	// 5. Change another relevant option (e.g., plugin config order/content) - should NOT match
-	opts.PluginConfigs = []converter.PluginConfig{
+	// FIX: Use plugin.PluginConfig type
+	opts.PluginConfigs = []plugin.PluginConfig{
 		{Name: "B", Enabled: true, Stage: "pre"},
 		{Name: "A", Enabled: true, Stage: "pre"},
 	}
@@ -668,7 +692,8 @@ func TestCalculateConfigHash(t *testing.T) { // minimal comment
 	assert.NotEqual(t, hash1, hash5a, "Config hash should change when plugins are added")
 
 	// Change order - MUST change hash due to sorting in implementation
-	opts.PluginConfigs = []converter.PluginConfig{
+	// FIX: Use plugin.PluginConfig type
+	opts.PluginConfigs = []plugin.PluginConfig{
 		{Name: "A", Enabled: true, Stage: "pre"},
 		{Name: "B", Enabled: true, Stage: "pre"},
 	}
@@ -679,7 +704,8 @@ func TestCalculateConfigHash(t *testing.T) { // minimal comment
 	// Let's assert not equal, assuming the content/order detail matters after sorting.
 	assert.NotEqual(t, hash5a, hash5b, "Config hash should change when plugin details change (even if sorted)")
 
-	opts.PluginConfigs = []converter.PluginConfig{} // Change back
+	// FIX: Use plugin.PluginConfig type
+	opts.PluginConfigs = []plugin.PluginConfig{} // Change back
 
 	// 6. Change template path/content (relevant) - should NOT match
 	tmpDir := t.TempDir() // Use temp dir for templates

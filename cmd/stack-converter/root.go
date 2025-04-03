@@ -51,7 +51,8 @@ It features:
 		defer cancel() // Ensure cancellation propagates even if Run exits early
 
 		// Load configuration (delegated)
-		opts, logger, err := config.LoadAndValidate(cfgFile, profileName, verbose, cmd.Flags())
+		// FIX: Pass the global 'version' variable as the appVersion argument
+		opts, logger, err := config.LoadAndValidate(cfgFile, profileName, version, verbose, cmd.Flags())
 		if err != nil {
 			// config.LoadAndValidate should log the specific error to stderr already
 			// Return the error to signal failure to cobra, which will print it and exit non-zero.
@@ -124,6 +125,8 @@ func init() { // minimal comment
 
 	// Workflow flags
 	rootCmd.Flags().Bool("watch", false, "Enable watch mode to automatically re-run on file changes")
+	// FIX: Add watch-debounce flag definition to match its usage in config binding
+	rootCmd.Flags().String("watch-debounce", converter.DefaultWatchDebounceString, "Watch debounce duration string (e.g., '300ms', '1s')")
 	rootCmd.Flags().Bool("extract-comments", converter.DefaultAnalysisExtractComments, "Enable experimental extraction of documentation comments")
 }
 

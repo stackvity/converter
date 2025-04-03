@@ -1,8 +1,8 @@
+// --- START OF FINAL REVISED FILE internal/cli/ui/model.go ---
 package ui
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -155,6 +155,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if startTime, found := m.processTime[msg.Path]; found {
 					currentItem.duration = time.Since(startTime)
 					delete(m.processTime, msg.Path) // Clean up start time
+				} else {
+					// If start time wasn't found but we got a final message with duration, use it.
+					// This handles cases where processing starts/ends very quickly or before TUI fully init.
+					currentItem.duration = msg.Duration
 				}
 			} else if msg.Status == converter.StatusProcessing {
 				// Store start time when processing begins
@@ -185,7 +189,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fileItems = append(m.fileItems, newItem)
 			m.itemMap[msg.Path] = len(m.fileItems) - 1
 			m.summary.TotalFilesScanned++
-			m.incrementSummaryCount(msg.Status) // Increment count as it's a final state update
+			if isFinalStatus(msg.Status) {
+				m.incrementSummaryCount(msg.Status) // Increment count as it's a final state update
+			}
 			// Update list items (debounced)
 			cmds = append(cmds, m.debounceListUpdate())
 		}
@@ -437,13 +443,16 @@ func (i listItem) Description() string {
 	if i.status == converter.StatusFailed {
 		details = i.message // Show error message for failed items
 	} else if i.status == converter.StatusSkipped {
-		// Extract reason if message has standard format "reason: details"
-		parts := strings.SplitN(i.message, ":", 2)
-		if len(parts) > 0 {
-			details = strings.TrimSpace(parts[0]) // Show reason part
-		} else {
-			details = i.message // Fallback to full message
-		}
+		// **MODIFIED:** Display the full message (which contains Reason: Details) for Skipped status
+		// The message construction happens in the Engine's defer block.
+		details = i.message
+		// Old logic:
+		// parts := strings.SplitN(i.message, ":", 2)
+		// if len(parts) > 0 {
+		//     details = strings.TrimSpace(parts[0]) // Show reason part
+		// } else {
+		//     details = i.message // Fallback to full message
+		// }
 	} else if i.status == converter.StatusSuccess || i.status == converter.StatusCached {
 		if i.duration > 0 {
 			details = formatDuration(i.duration)
@@ -542,3 +551,5 @@ var (
 	StatusStylePending    = lipgloss.NewStyle().Foreground(ColorStatusPending)
 	StatusStyleProcessing = lipgloss.NewStyle().Foreground(ColorStatusProcessing)
 )
+
+// --- END OF FINAL REVISED FILE internal/cli/ui/model.go ---

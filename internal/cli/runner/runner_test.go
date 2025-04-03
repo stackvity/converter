@@ -15,7 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stackvity/stack-converter/pkg/converter"
+	// FIX: Remove direct import of converter package
+	// "github.com/stackvity/stack-converter/pkg/converter"
 	"github.com/stackvity/stack-converter/pkg/converter/plugin" // Use constants/types from here
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,7 +134,8 @@ func TestExecPluginRunner_Run_Success_ModifyContent(t *testing.T) { // minimal c
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	// Plugin script ensures a fully valid PluginOutput JSON
 	scriptContent := `
@@ -155,8 +157,9 @@ except Exception as e:
 	scriptPath := createMockPluginScript(t, scriptContent, "modify_content.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "Modifier", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "Modifier", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{
 		Stage:    plugin.PluginStagePreprocessor,
 		FilePath: "test.txt",
 		Content:  "Original",
@@ -181,7 +184,8 @@ func TestExecPluginRunner_Run_Success_ModifyMetadata(t *testing.T) { // minimal 
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	scriptContent := `
 import sys, json
@@ -205,8 +209,9 @@ except Exception as e:
 	scriptPath := createMockPluginScript(t, scriptContent, "modify_meta.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "MetaAdder", Stage: plugin.PluginStagePostprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "MetaAdder", Stage: plugin.PluginStagePostprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{
 		Stage:    plugin.PluginStagePostprocessor,
 		FilePath: "test.md",
 		Content:  "Markdown Content",
@@ -232,7 +237,8 @@ func TestExecPluginRunner_Run_Success_FormatterOutput(t *testing.T) { // minimal
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	scriptContent := `
 import sys, json
@@ -252,8 +258,9 @@ except Exception as e:
 	scriptPath := createMockPluginScript(t, scriptContent, "formatter.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "HTMLFormatter", Stage: plugin.PluginStageFormatter, Enabled: true, Command: cmd}
-	input := converter.PluginInput{
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "HTMLFormatter", Stage: plugin.PluginStageFormatter, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{
 		Stage:    plugin.PluginStageFormatter,
 		FilePath: "doc.rst",
 		Content:  "RST Content",
@@ -277,7 +284,8 @@ func TestExecPluginRunner_Run_Error_NonZeroExit(t *testing.T) { // minimal comme
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	scriptContent := `
 import sys
@@ -287,8 +295,9 @@ sys.exit(15) # Specific non-zero exit code
 	scriptPath := createMockPluginScript(t, scriptContent, "fail_exit.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "Failer", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "Failer", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -308,7 +317,8 @@ func TestExecPluginRunner_Run_Error_Timeout(t *testing.T) { // minimal comment
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	scriptContent := `
 import time, sys
@@ -328,8 +338,9 @@ sys.exit(0)
 	scriptPath := createMockPluginScript(t, scriptContent, "timeout.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "Sleeper", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "Sleeper", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond) // Short timeout
 	defer cancel()
@@ -353,7 +364,8 @@ func TestExecPluginRunner_Run_Error_BadJSONOutput(t *testing.T) { // minimal com
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	scriptContent := `
 import sys
@@ -365,8 +377,9 @@ sys.exit(0)
 	scriptPath := createMockPluginScript(t, scriptContent, "bad_json.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "BadJSON", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "BadJSON", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -387,7 +400,8 @@ sys.exit(0)
 func TestExecPluginRunner_Run_Error_EmptyStdout(t *testing.T) { // minimal comment
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	scriptContent := `#!/bin/sh
 # No stdout output, exit cleanly
@@ -397,8 +411,9 @@ exit 0
 	scriptPath := createMockPluginScript(t, scriptContent, "empty_stdout.sh")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "EmptyStdout", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "EmptyStdout", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -418,7 +433,8 @@ func TestExecPluginRunner_Run_Error_PluginReportedError(t *testing.T) { // minim
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	pluginErrMsg := "Input file format not supported by plugin"
 	scriptContent := fmt.Sprintf(`
@@ -432,8 +448,9 @@ sys.exit(0) # Exit 0 because the error is functional, not executional
 	scriptPath := createMockPluginScript(t, scriptContent, "report_error.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "Reporter", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "Reporter", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -455,7 +472,8 @@ func TestExecPluginRunner_Run_Error_SchemaMismatch(t *testing.T) { // minimal co
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	wrongSchema := "2.0-alpha" // Plugin claims a newer, incompatible version
 	scriptContent := fmt.Sprintf(`
@@ -468,8 +486,9 @@ sys.exit(0)
 	scriptPath := createMockPluginScript(t, scriptContent, "wrong_schema.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "WrongSchema", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "WrongSchema", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -491,13 +510,15 @@ sys.exit(0)
 func TestExecPluginRunner_Run_Error_CommandNotFound(t *testing.T) { // minimal comment
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	nonExistentCommand := "/path/to/totally/fake/command-" + time.Now().Format("20060102150405")
 	cmd := []string{nonExistentCommand}
 
-	pluginCfg := converter.PluginConfig{Name: "NotFound", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "NotFound", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -519,10 +540,12 @@ func TestExecPluginRunner_Run_Error_CommandNotFound(t *testing.T) { // minimal c
 func TestExecPluginRunner_Run_Error_EmptyCommand(t *testing.T) { // minimal comment
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
-	pluginCfg := converter.PluginConfig{Name: "EmptyCmd", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: []string{}} // Empty command
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "EmptyCmd", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: []string{}} // Empty command
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -546,7 +569,8 @@ func TestExecPluginRunner_Run_Security_NoCommandInjection(t *testing.T) { // min
 	}
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	// Simple script that echoes its arguments safely, one per line, in JSON content field
 	scriptContent := `#!/bin/sh
@@ -572,8 +596,9 @@ exit 0
 	_ = os.Remove(testFile)
 
 	// The injection attempt is passed as a single argument element.
-	pluginCfg := converter.PluginConfig{Name: "InjectTest", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: append(cmd, "safe_arg1", injectionAttempt, "safe_arg2")}
-	input := converter.PluginInput{FilePath: "secure.txt", Content: "ignored"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "InjectTest", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: append(cmd, "safe_arg1", injectionAttempt, "safe_arg2")}
+	input := plugin.PluginInput{FilePath: "secure.txt", Content: "ignored"}
 
 	output, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -595,7 +620,8 @@ func TestExecPluginRunner_Run_Error_ExcessiveStdout(t *testing.T) { // minimal c
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	// Writes slightly more than maxPluginReadBytes to stdout, then exits 0
 	scriptContent := fmt.Sprintf(`
@@ -615,8 +641,9 @@ except Exception as e:
 	scriptPath := createMockPluginScript(t, scriptContent, "big_stdout.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "BigStdout", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "BigStdout", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt"}
 
 	_, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 
@@ -637,7 +664,8 @@ func TestExecPluginRunner_Run_Error_ExcessiveStderr(t *testing.T) { // minimal c
 	skipIfNoPython(t)
 	logBuf := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := NewExecPluginRunner(logger.Handler())
+	// FIX: Use plugin.PluginRunner for the type
+	var runner plugin.PluginRunner = NewExecPluginRunner(logger.Handler())
 
 	// Writes excessive stderr, but valid JSON stdout
 	scriptContent := fmt.Sprintf(`
@@ -664,8 +692,9 @@ except Exception as e:
 	scriptPath := createMockPluginScript(t, scriptContent, "big_stderr.py")
 	cmd := getTestPluginCommand(scriptPath)
 
-	pluginCfg := converter.PluginConfig{Name: "BigStderr", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
-	input := converter.PluginInput{FilePath: "a.txt", Content: "Input"}
+	// FIX: Use plugin.PluginConfig and plugin.PluginInput
+	pluginCfg := plugin.PluginConfig{Name: "BigStderr", Stage: plugin.PluginStagePreprocessor, Enabled: true, Command: cmd}
+	input := plugin.PluginInput{FilePath: "a.txt", Content: "Input"}
 
 	output, err := runner.Run(context.Background(), plugin.PluginStagePreprocessor, pluginCfg, input)
 

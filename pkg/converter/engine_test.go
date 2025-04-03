@@ -18,9 +18,9 @@ import (
 	// Import interfaces for factory function signature matching
 	"github.com/stackvity/stack-converter/pkg/converter/analysis"
 	"github.com/stackvity/stack-converter/pkg/converter/encoding"
-
-	// "github.com/stackvity/stack-converter/pkg/converter/git" // FIX: Removed unused import alias
+	libgit "github.com/stackvity/stack-converter/pkg/converter/git" // Alias for git interface
 	"github.com/stackvity/stack-converter/pkg/converter/language"
+	libplugin "github.com/stackvity/stack-converter/pkg/converter/plugin" // Alias for plugin interface
 
 	// Use fully qualified path for template package types in factory signature
 	pkghtmltemplate "github.com/stackvity/stack-converter/pkg/converter/template" // Use a distinct alias
@@ -172,17 +172,19 @@ func NewMockProcessorFactory(mockP *MockFileProcessor) converter.ProcessorFactor
 	factoryFunc := func(
 		opts *converter.Options,
 		lh slog.Handler,
-		cm converter.CacheManager, // Use type from pkg/converter
+		// FIX: Use correct interface types from subpackages
+		cm cache.CacheManager, // Use type from pkg/converter/cache
 		ld language.LanguageDetector, // Use type from pkg/converter/language
 		eh encoding.EncodingHandler, // Use type from pkg/converter/encoding
 		ae analysis.AnalysisEngine, // Use type from pkg/converter/analysis
-		gc converter.GitClient, // Use type from pkg/converter
-		pr converter.PluginRunner, // Use type from pkg/converter
+		gc libgit.GitClient, // Use aliased type from pkg/converter/git
+		pr libplugin.PluginRunner, // Use aliased type from pkg/converter/plugin
 		te pkghtmltemplate.TemplateExecutor, // Use aliased type from pkg/converter/template
 	) *converter.FileProcessor {
 		// This realProcessor instance is returned but its ProcessFile won't be called
 		// if the test replaces it or mocks the execution flow differently.
 		// Test expectations should be set on the 'mockP' instance passed into the factory.
+		// FIX: Pass arguments with corrected types
 		realProcessor := converter.NewFileProcessor(opts, lh, cm, ld, eh, ae, gc, pr, te)
 		return realProcessor
 	}

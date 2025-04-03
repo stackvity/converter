@@ -106,7 +106,8 @@ func TestLoadAndValidate_Defaults(t *testing.T) {
 	require.NoError(t, flags.Set("input", tempInputDir))
 	require.NoError(t, flags.Set("output", tempOutputDir))
 
-	opts, logger, err := LoadAndValidate("", "", false, flags)
+	// FIX: Add appVersion argument (e.g., "test-version")
+	opts, logger, err := LoadAndValidate("", "", "test-version", false, flags)
 
 	require.NoError(t, err)
 	require.NotNil(t, logger)
@@ -160,7 +161,8 @@ profiles:
 	require.NoError(t, flags.Set("output", tempOutputDir))
 	// Do not set verbose flag, let config value take effect
 
-	opts, logger, err := LoadAndValidate(cfgFile, "", false, flags) // verbose flag=false
+	// FIX: Add appVersion argument
+	opts, logger, err := LoadAndValidate(cfgFile, "", "test-version", false, flags) // verbose flag=false
 
 	require.NoError(t, err)
 	require.NotNil(t, logger)
@@ -203,7 +205,8 @@ profiles:
 	require.NoError(t, flags.Set("input", tempInputDir))
 	require.NoError(t, flags.Set("output", tempOutputDir))
 
-	opts, _, err := LoadAndValidate(cfgFile, "ci", false, flags) // Use "ci" profile
+	// FIX: Add appVersion argument
+	opts, _, err := LoadAndValidate(cfgFile, "ci", "test-version", false, flags) // Use "ci" profile
 
 	require.NoError(t, err)
 	assert.Equal(t, "ci", opts.ProfileName)
@@ -227,7 +230,8 @@ func TestLoadAndValidate_EnvVarOverride(t *testing.T) {
 	require.NoError(t, flags.Set("input", tempInputDir))
 	require.NoError(t, flags.Set("output", tempOutputDir))
 
-	opts, _, err := LoadAndValidate(cfgFile, "", false, flags)
+	// FIX: Add appVersion argument
+	opts, _, err := LoadAndValidate(cfgFile, "", "test-version", false, flags)
 
 	require.NoError(t, err)
 	assert.Equal(t, 8, opts.Concurrency)                             // Env override file
@@ -251,7 +255,8 @@ func TestLoadAndValidate_FlagOverride(t *testing.T) {
 	require.NoError(t, flags.Set("verbose", "true"))   // Flag value
 
 	// Pass verbose=true here as cobra would have parsed it
-	opts, _, err := LoadAndValidate(cfgFile, "", true, flags)
+	// FIX: Add appVersion argument
+	opts, _, err := LoadAndValidate(cfgFile, "", "test-version", true, flags)
 
 	require.NoError(t, err)
 	assert.Equal(t, 16, opts.Concurrency) // Flag overrides Env and File
@@ -291,7 +296,8 @@ profiles:
 
 	// Run with profile "ci" and flags
 	// Pass verbose=false
-	opts, _, err := LoadAndValidate(cfgFile, "ci", false, flags)
+	// FIX: Add appVersion argument
+	opts, _, err := LoadAndValidate(cfgFile, "ci", "test-version", false, flags)
 
 	require.NoError(t, err)
 	assert.Equal(t, 16, opts.Concurrency) // Flag wins
@@ -559,7 +565,8 @@ func TestLoadAndValidate_ValidationErrors(t *testing.T) {
 				cfgFile = createTempConfigFile(t, tc.cfgContent, "yaml")
 			}
 
-			_, _, err := LoadAndValidate(cfgFile, tc.profile, false, flags)
+			// FIX: Add appVersion argument
+			_, _, err := LoadAndValidate(cfgFile, tc.profile, "test-version", false, flags)
 
 			if tc.expectError {
 				require.Error(t, err, "Expected an error for test case: %s", tc.name)
@@ -598,7 +605,8 @@ func TestLoadAndValidate_DefaultHooks(t *testing.T) {
 	require.NoError(t, flags.Set("input", tempInputDir))
 	require.NoError(t, flags.Set("output", tempOutputDir))
 
-	opts, _, err := LoadAndValidate("", "", false, flags)
+	// FIX: Add appVersion argument
+	opts, _, err := LoadAndValidate("", "", "test-version", false, flags)
 
 	require.NoError(t, err)
 	assert.NotNil(t, opts.EventHooks, "EventHooks should have a default non-nil implementation")
@@ -615,7 +623,8 @@ func TestLoadAndValidate_DefaultLogger(t *testing.T) {
 	require.NoError(t, flags.Set("input", tempInputDir))
 	require.NoError(t, flags.Set("output", tempOutputDir))
 
-	opts, logger, err := LoadAndValidate("", "", false, flags)
+	// FIX: Add appVersion argument
+	opts, logger, err := LoadAndValidate("", "", "test-version", false, flags)
 
 	require.NoError(t, err)
 	require.NotNil(t, logger)
@@ -637,7 +646,8 @@ func TestLoadAndValidate_VerboseLogger(t *testing.T) {
 	require.NoError(t, flags.Set("verbose", "true")) // Enable verbosity via flag
 
 	// Pass verbose=true here to simulate cobra parsing
-	opts, logger, err := LoadAndValidate("", "", true, flags)
+	// FIX: Add appVersion argument
+	opts, logger, err := LoadAndValidate("", "", "test-version", true, flags)
 
 	require.NoError(t, err)
 	require.NotNil(t, logger)

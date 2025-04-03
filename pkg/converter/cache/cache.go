@@ -9,8 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"strings" // Import strings
+	"path/filepath" // Import sort for deterministic config hashing
+	"strings"       // Import strings
 	"sync"
 	"time"
 	// FIX: Remove import cycle by removing unnecessary parent package import.

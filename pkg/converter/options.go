@@ -8,8 +8,11 @@ import (
 	"time"
 
 	"github.com/stackvity/stack-converter/pkg/converter/analysis"
+	"github.com/stackvity/stack-converter/pkg/converter/cache"
 	"github.com/stackvity/stack-converter/pkg/converter/encoding"
+	"github.com/stackvity/stack-converter/pkg/converter/git" // Import git package for GitClient interface
 	"github.com/stackvity/stack-converter/pkg/converter/language"
+	"github.com/stackvity/stack-converter/pkg/converter/plugin" // Import plugin package for Plugin types/interface
 	tpl "github.com/stackvity/stack-converter/pkg/converter/template"
 )
 
@@ -38,34 +41,10 @@ type GitConfig struct {
 	SinceRef string `mapstructure:"sinceRef"`
 }
 
-// PluginConfig defines the configuration for a single external plugin.
-type PluginConfig struct {
-	Name      string                 `mapstructure:"name"`
-	Stage     string                 `mapstructure:"-"`
-	Enabled   bool                   `mapstructure:"enabled"`
-	Command   []string               `mapstructure:"command"`
-	AppliesTo []string               `mapstructure:"appliesTo"`
-	Config    map[string]interface{} `mapstructure:"config"`
-}
-
-// PluginInput defines the structure sent TO a plugin via JSON stdin.
-type PluginInput struct {
-	SchemaVersion string                 `json:"$schemaVersion"`
-	Stage         string                 `json:"stage"`
-	FilePath      string                 `json:"filePath"`
-	Content       string                 `json:"content"`
-	Metadata      map[string]interface{} `json:"metadata"`
-	Config        map[string]interface{} `json:"config"`
-}
-
-// PluginOutput defines the structure expected FROM a plugin via JSON stdout.
-type PluginOutput struct {
-	SchemaVersion string                 `json:"$schemaVersion"`
-	Error         string                 `json:"error,omitempty"`
-	Content       string                 `json:"content,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
-	Output        string                 `json:"output,omitempty"`
-}
+// --- Plugin Type Definitions Removed ---
+// REMOVED: Local definition of PluginConfig struct
+// REMOVED: Local definition of PluginInput struct
+// REMOVED: Local definition of PluginOutput struct
 
 // Hooks defines callbacks for status updates during the conversion process.
 // Implementations MUST be thread-safe as methods may be called concurrently.
@@ -109,24 +88,10 @@ func (c *NoOpCacheManager) Update(filePath string, modTime time.Time, sourceHash
 // Persist implements CacheManager, performs no action.
 func (c *NoOpCacheManager) Persist(cachePath string) error { return nil }
 
-// GitClient defines methods for interacting with Git repositories.
-type GitClient interface {
-	GetFileMetadata(repoPath, filePath string) (map[string]string, error)
-	GetChangedFiles(repoPath, mode string, ref string) ([]string, error)
-}
-
-// PluginRunner defines the method for running external plugins.
-type PluginRunner interface {
-	Run(ctx context.Context, stage string, pluginConfig PluginConfig, input PluginInput) (PluginOutput, error)
-}
-
-// CacheManager defines methods for interacting with the cache.
-type CacheManager interface {
-	Load(cachePath string) error
-	Check(filePath string, modTime time.Time, contentHash string, configHash string) (isHit bool, outputHash string)
-	Update(filePath string, modTime time.Time, sourceHash string, configHash string, outputHash string) error
-	Persist(cachePath string) error
-}
+// --- Interface Definitions moved to sub-packages ---
+// REMOVED: Local definition of GitClient interface
+// REMOVED: Local definition of PluginRunner interface
+// REMOVED: Local definition of CacheManager interface
 
 // Options holds all configuration for a GenerateDocs run.
 type Options struct {
@@ -178,15 +143,15 @@ type Options struct {
 	GitMetadataEnabled bool          `mapstructure:"gitMetadata"`
 
 	// --- Analysis & Extensibility ---
-	AnalysisOptions AnalysisConfig `mapstructure:"analysis"`
-	PluginConfigs   []PluginConfig `mapstructure:"plugins"`
+	AnalysisOptions AnalysisConfig        `mapstructure:"analysis"`
+	PluginConfigs   []plugin.PluginConfig `mapstructure:"plugins"` // FIX: Use plugin.PluginConfig type
 
 	// --- Injected Dependencies & Internal State ---
 	EventHooks            Hooks                     `mapstructure:"-"` // Required: Callback interface
 	Logger                slog.Handler              `mapstructure:"-"` // Required: Logging backend
-	GitClient             GitClient                 `mapstructure:"-"` // Optional: Git interaction implementation
-	PluginRunner          PluginRunner              `mapstructure:"-"` // Optional: Plugin execution implementation
-	CacheManager          CacheManager              `mapstructure:"-"` // Optional: Cache implementation
+	GitClient             git.GitClient             `mapstructure:"-"` // Optional: Git interaction implementation
+	PluginRunner          plugin.PluginRunner       `mapstructure:"-"` // FIX: Use plugin.PluginRunner type
+	CacheManager          cache.CacheManager        `mapstructure:"-"` // Optional: Cache implementation
 	LanguageDetector      language.LanguageDetector `mapstructure:"-"` // Optional: Language detection implementation
 	EncodingHandler       encoding.EncodingHandler  `mapstructure:"-"` // Optional: Encoding handling implementation
 	TemplateExecutor      tpl.TemplateExecutor      `mapstructure:"-"` // Optional: Template execution implementation

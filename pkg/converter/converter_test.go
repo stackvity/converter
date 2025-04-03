@@ -11,6 +11,7 @@ import (
 
 	"github.com/stackvity/stack-converter/internal/testutil" // Use shared mocks
 	"github.com/stackvity/stack-converter/pkg/converter"
+	"github.com/stackvity/stack-converter/pkg/converter/plugin" // FIX: Import the plugin package
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,7 @@ func createValidTestOptions(t *testing.T) converter.Options {
 		AnalysisOptions:       converter.AnalysisConfig{ExtractComments: false},
 		FrontMatterConfig:     converter.FrontMatterOptions{Enabled: false},
 		DispatchWarnThreshold: 1 * time.Second,
+		PluginConfigs:         []plugin.PluginConfig{}, // Initialize with correct type
 	}
 
 	mockHooks, ok := opts.EventHooks.(*testutil.MockHooks)
@@ -178,7 +180,8 @@ func TestGenerateDocs_DependencyWarnings(t *testing.T) {
 
 	opts.CacheEnabled = true
 	opts.GitMetadataEnabled = true
-	opts.PluginConfigs = []converter.PluginConfig{{Enabled: true}}
+	// FIX: Use plugin.PluginConfig type here
+	opts.PluginConfigs = []plugin.PluginConfig{{Enabled: true}}
 	opts.AnalysisOptions.ExtractComments = true
 
 	opts.CacheManager = nil

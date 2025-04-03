@@ -7,6 +7,7 @@ import (
 	"go/doc"
 	"go/parser"
 	"go/token"
+	"io"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -37,6 +38,10 @@ type DefaultAnalysisEngine struct {
 
 // NewDefaultAnalysisEngine creates a new DefaultAnalysisEngine.
 func NewDefaultAnalysisEngine(loggerHandler slog.Handler) AnalysisEngine { // minimal comment
+	// Ensure loggerHandler is not nil, provide a default if necessary
+	if loggerHandler == nil {
+		loggerHandler = slog.NewTextHandler(io.Discard, nil) // Use io.Discard to prevent nil panic
+	}
 	logger := slog.New(loggerHandler).With(slog.String("component", "analysisEngine"))
 	return &DefaultAnalysisEngine{logger: logger}
 }

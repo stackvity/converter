@@ -14,15 +14,17 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/stackvity/stack-converter/pkg/converter"
+	"github.com/stackvity/stack-converter/pkg/converter" // Import cache interface
+	// Import git interface
+	"github.com/stackvity/stack-converter/pkg/converter/plugin"       // FIX: Import the plugin package
 	tpl "github.com/stackvity/stack-converter/pkg/converter/template" // Alias to avoid collision
 	"github.com/stretchr/testify/mock"
 )
 
-// MockCacheManager provides a mock implementation of the converter.CacheManager interface.
+// MockCacheManager provides a mock implementation of the cache.CacheManager interface.
 // Configure expectations using testify/mock methods (e.g., .On("Check", ...).Return(...)).
 // Test implementations using this mock MUST handle thread-safety if the mock state is modified
-// concurrently (e.g., tracking Update calls). See converter.CacheManager for the interface contract.
+// concurrently (e.g., tracking Update calls). See cache.CacheManager for the interface contract.
 type MockCacheManager struct {
 	mock.Mock
 }
@@ -108,9 +110,9 @@ func (m *MockAnalysisEngine) ExtractDocComments(content []byte, language string,
 	return
 }
 
-// MockGitClient provides a mock implementation of the converter.GitClient interface.
+// MockGitClient provides a mock implementation of the git.GitClient interface.
 // Configure expectations using testify/mock methods (e.g., .On("GetFileMetadata", ...).Return(...)).
-// See converter.GitClient for the interface contract.
+// See git.GitClient for the interface contract.
 type MockGitClient struct {
 	mock.Mock
 }
@@ -131,17 +133,18 @@ func (m *MockGitClient) GetChangedFiles(repoPath, mode string, ref string) (file
 	return
 }
 
-// MockPluginRunner provides a mock implementation of the converter.PluginRunner interface.
+// MockPluginRunner provides a mock implementation of the plugin.PluginRunner interface.
 // Configure expectations using testify/mock methods (e.g., .On("Run", ...).Return(...)).
-// See converter.PluginRunner for the interface contract.
+// See plugin.PluginRunner for the interface contract.
 type MockPluginRunner struct {
 	mock.Mock
 }
 
 // Run mocks the Run method.
-func (m *MockPluginRunner) Run(ctx context.Context, stage string, pluginConfig converter.PluginConfig, input converter.PluginInput) (output converter.PluginOutput, err error) {
+// FIX: Changed parameter and return types to use plugin.* types.
+func (m *MockPluginRunner) Run(ctx context.Context, stage string, pluginConfig plugin.PluginConfig, input plugin.PluginInput) (output plugin.PluginOutput, err error) {
 	args := m.Called(ctx, stage, pluginConfig, input)
-	output, _ = args.Get(0).(converter.PluginOutput)
+	output, _ = args.Get(0).(plugin.PluginOutput) // Use plugin.PluginOutput type assertion
 	err = args.Error(1)
 	return
 }

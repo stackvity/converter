@@ -91,6 +91,7 @@ func (h *CLIHooks) OnFileDiscovered(path string) error { // minimal comment
 	} else if h.verboseEnabled {
 		h.logger.Debug("File discovered", "path", path)
 	}
+	// Note: Progress bar is not incremented here, only on file *completion* statuses.
 	return nil
 }
 
@@ -100,12 +101,13 @@ func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, mess
 		h.tuiProgram.Send(FileStatusUpdateMsg{
 			Path:     path,
 			Status:   status,
-			Message:  message,
+			Message:  message, // Pass the full message (e.g., "skipped: binary file")
 			Duration: duration,
 		})
 		return nil
 	}
 
+	// Verbose logging path - already handles detailed message correctly
 	if h.verboseEnabled {
 		logLevel := slog.LevelDebug
 		logMsg := "File status updated"
@@ -119,9 +121,11 @@ func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, mess
 		if message != "" {
 			logKey := "message"
 			if status == converter.StatusFailed {
-				logKey = "error"
+				logKey = "error" // Use 'error' key for Failed status messages
+			} else if status == converter.StatusSkipped {
+				logKey = "reason" // Use 'reason' key for Skipped status messages
 			}
-			attrs = append(attrs, slog.String(logKey, message))
+			attrs = append(attrs, slog.String(logKey, message)) // Log the full message
 		}
 
 		switch status {
@@ -135,6 +139,7 @@ func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, mess
 		return nil
 	}
 
+	// Progress bar path - correctly increments on final states
 	if h.progressBar != nil {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -145,13 +150,16 @@ func (h *CLIHooks) OnFileStatusUpdate(path string, status converter.Status, mess
 		if isFinalState {
 			_ = h.progressBar.Add(1)
 		}
+		// Log only errors separately if progress bar is active
 		if status == converter.StatusFailed {
 			h.logger.Error("File processing failed", "path", path, "error", message)
 		}
-	} else {
-		if status == converter.StatusFailed {
-			h.logger.Error("File processing failed", "path", path, "error", message)
-		}
+		return nil
+	}
+
+	// Standard log mode (non-TTY, non-verbose) - log only errors
+	if status == converter.StatusFailed {
+		h.logger.Error("File processing failed", "path", path, "error", message)
 	}
 
 	return nil
@@ -163,11 +171,21 @@ func (h *CLIHooks) OnRunComplete(report converter.Report) error { // minimal com
 		h.tuiProgram.Send(RunCompleteMsg{Report: report})
 	} else {
 		if h.progressBar != nil {
+			// Ensure progress bar closure happens safely after potential Add calls
 			h.mu.Lock()
 			_ = h.progressBar.Close()
 			h.mu.Unlock()
+			// Print a newline to avoid the final summary overwriting the progress bar line
 			_, _ = fmt.Fprintln(os.Stderr)
 		}
+		// Always log the final summary in non-TUI mode (unless JSON output is handled elsewhere)
+		// This assumes the final summary logic is outside the hook, perhaps in cli.Run after GenerateDocs returns.
+		// If the hook *is* responsible for the final log summary, add it here:
+		// logArgs := []any{
+		//     slog.Int("processed", report.Summary.ProcessedCount),
+		//     // ... other summary fields ...
+		// }
+		// h.logger.Info("Run Complete", logArgs...)
 	}
 	return nil
 }
